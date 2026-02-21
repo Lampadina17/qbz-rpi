@@ -6,6 +6,7 @@
 pub mod commands_v2;
 pub mod core_bridge;
 pub mod integrations_v2;
+pub mod qconnect_service;
 pub mod runtime;
 pub mod session_lifecycle;
 pub mod tauri_adapter;
@@ -355,6 +356,7 @@ pub fn run() {
         ))
         .manage(core_bridge::CoreBridgeState::new())
         .manage(runtime::RuntimeManagerState::new())
+        .manage(qconnect_service::QconnectServiceState::new())
         .manage(user_data_paths)
         .setup(move |app| {
             // Create main window programmatically so we can set the correct
@@ -676,6 +678,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands_v2::runtime_get_status,
             commands_v2::runtime_bootstrap,
+            qconnect_service::v2_qconnect_connect,
+            qconnect_service::v2_qconnect_disconnect,
+            qconnect_service::v2_qconnect_status,
             commands_v2::v2_is_logged_in,
             commands_v2::v2_login,
             commands_v2::v2_logout,

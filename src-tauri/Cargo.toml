@@ -28,6 +28,7 @@ qbz-cache = { path = "../crates/qbz-cache" }
 qbz-library = { path = "../crates/qbz-library" }
 qbz-cast = { path = "../crates/qbz-cast" }
 qconnect-app = { path = "../crates/qconnect-app" }
+qconnect-transport-ws = { path = "../crates/qconnect-transport-ws" }
 
 # Tauri
 tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
