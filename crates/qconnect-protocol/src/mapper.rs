@@ -159,7 +159,7 @@ fn map_queue_command(command: &QueueCommand) -> Result<QConnectMessage, Protocol
         }),
         QueueCommandType::CtrlSrvrQueueAddTracks => {
             let track_ids = required_i32_list(&command.payload, "track_ids")?;
-            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?;
+            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?.map(|v| v as u32);
             let context_uuid = optional_uuid_bytes(&command.payload, &["context_uuid"])?;
             let autoplay_reset = optional_bool(&command.payload, "autoplay_reset", false);
             let autoplay_loading =
@@ -182,7 +182,7 @@ fn map_queue_command(command: &QueueCommand) -> Result<QConnectMessage, Protocol
         QueueCommandType::CtrlSrvrQueueLoadTracks => {
             let track_ids = required_i32_list(&command.payload, "track_ids")?;
             let queue_position = optional_i32(&command.payload, "queue_position")?;
-            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?;
+            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?.map(|v| v as u32);
             let shuffle_pivot_index = optional_i32(&command.payload, "shuffle_pivot_index")?;
             let shuffle_mode = optional_bool(&command.payload, "shuffle_mode", false);
             let context_uuid = optional_uuid_bytes(&command.payload, &["context_uuid"])?;
@@ -210,7 +210,7 @@ fn map_queue_command(command: &QueueCommand) -> Result<QConnectMessage, Protocol
         QueueCommandType::CtrlSrvrQueueInsertTracks => {
             let track_ids = required_i32_list(&command.payload, "track_ids")?;
             let insert_after = optional_i32(&command.payload, "insert_after")?;
-            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?;
+            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?.map(|v| v as u32);
             let context_uuid = optional_uuid_bytes(&command.payload, &["context_uuid"])?;
             let autoplay_reset = optional_bool(&command.payload, "autoplay_reset", false);
             let autoplay_loading =
@@ -285,7 +285,7 @@ fn map_queue_command(command: &QueueCommand) -> Result<QConnectMessage, Protocol
         }),
         QueueCommandType::CtrlSrvrSetShuffleMode => {
             let shuffle_mode = optional_bool(&command.payload, "shuffle_mode", false);
-            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?;
+            let shuffle_seed = optional_i32(&command.payload, "shuffle_seed")?.map(|v| v as u32);
             let shuffle_pivot_queue_item_id =
                 optional_i32(&command.payload, "shuffle_pivot_queue_item_id")?;
             let autoplay_reset = optional_bool(&command.payload, "autoplay_reset", false);

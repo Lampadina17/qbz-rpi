@@ -566,7 +566,7 @@ fn map_tracks_loaded(payload: QueueTracksLoadedMessage) -> Result<QueueServerEve
         payload: json!({
             "tracks": tracks,
             "queue_position": optional_i32_to_u64(payload.queue_position)?,
-            "shuffle_seed": optional_i32_to_u64(payload.shuffle_seed)?,
+            "shuffle_seed": payload.shuffle_seed.map(|v| v as u64),
             "shuffle_pivot_queue_item_id": optional_i32_to_u64(payload.shuffle_pivot_queue_item_id)?,
             "shuffle_mode": payload.shuffle_mode.unwrap_or(false),
             "autoplay_reset": payload.autoplay_reset.unwrap_or(false),
@@ -593,7 +593,7 @@ fn map_tracks_inserted(
         payload: json!({
             "tracks": tracks,
             "insert_after": optional_i32_to_u64(payload.insert_after)?,
-            "shuffle_seed": optional_i32_to_u64(payload.shuffle_seed)?,
+            "shuffle_seed": payload.shuffle_seed.map(|v| v as u64),
             "autoplay_reset": payload.autoplay_reset.unwrap_or(false),
             "autoplay_loading": payload.autoplay_loading.unwrap_or(false)
         }),
@@ -614,7 +614,7 @@ fn map_tracks_added(payload: QueueTracksAddedMessage) -> Result<QueueServerEvent
         queue_version: queue_version_opt(payload.queue_version)?,
         payload: json!({
             "tracks": tracks,
-            "shuffle_seed": optional_i32_to_u64(payload.shuffle_seed)?,
+            "shuffle_seed": payload.shuffle_seed.map(|v| v as u64),
             "autoplay_reset": payload.autoplay_reset.unwrap_or(false),
             "autoplay_loading": payload.autoplay_loading.unwrap_or(false)
         }),
@@ -671,7 +671,7 @@ fn map_shuffle_mode_set(payload: ShuffleModeSetMessage) -> Result<QueueServerEve
         queue_version: queue_version_opt(payload.queue_version)?,
         payload: json!({
             "shuffle_mode": payload.shuffle_mode.unwrap_or(false),
-            "shuffle_seed": optional_i32_to_u64(payload.shuffle_seed)?,
+            "shuffle_seed": payload.shuffle_seed.map(|v| v as u64),
             "shuffle_pivot_queue_item_id": optional_i32_to_u64(payload.shuffle_pivot_queue_item_id)?,
             "autoplay_reset": payload.autoplay_reset.unwrap_or(false),
             "autoplay_loading": payload.autoplay_loading.unwrap_or(false)
@@ -967,7 +967,9 @@ fn queue_track_to_json(
     track: QueueTrack,
     context_uuid: Option<&str>,
 ) -> Result<Value, ProtocolError> {
-    let track_id = required_i32_to_u64(track.track_id, "queue_track.track_id")?;
+    let track_id = track.track_id.map(|v| v as u64).ok_or_else(|| {
+        ProtocolError::InvalidPayload("missing required field 'queue_track.track_id'".to_string())
+    })?;
     let queue_item_id =
         optional_i32_to_u64_named(track.queue_item_id, "queue_track.queue_item_id")?
             .unwrap_or(track_id);
@@ -980,7 +982,11 @@ fn queue_track_to_json(
 }
 
 fn queue_track_with_context_to_json(track: QueueTrackWithContext) -> Result<Value, ProtocolError> {
-    let track_id = required_i32_to_u64(track.track_id, "queue_track_with_context.track_id")?;
+    let track_id = track.track_id.map(|v| v as u64).ok_or_else(|| {
+        ProtocolError::InvalidPayload(
+            "missing required field 'queue_track_with_context.track_id'".to_string(),
+        )
+    })?;
     let queue_item_id = optional_i32_to_u64_named(
         track.queue_item_id,
         "queue_track_with_context.queue_item_id",

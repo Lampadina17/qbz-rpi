@@ -84,16 +84,16 @@ pub struct ErrorMessage {
 pub struct QueueTrack {
     #[prost(int32, optional, tag = "1")]
     pub queue_item_id: Option<i32>,
-    #[prost(int32, optional, tag = "2")]
-    pub track_id: Option<i32>,
+    #[prost(fixed32, optional, tag = "2")]
+    pub track_id: Option<u32>,
 }
 
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueueTrackWithContext {
     #[prost(int32, optional, tag = "1")]
     pub queue_item_id: Option<i32>,
-    #[prost(int32, optional, tag = "2")]
-    pub track_id: Option<i32>,
+    #[prost(fixed32, optional, tag = "2")]
+    pub track_id: Option<u32>,
     #[prost(bytes = "vec", optional, tag = "3")]
     pub context_uuid: Option<Vec<u8>>,
 }
@@ -233,8 +233,8 @@ pub struct QueueLoadTracksMessage {
     pub track_ids: Vec<i32>,
     #[prost(int32, optional, tag = "4")]
     pub queue_position: Option<i32>,
-    #[prost(int32, optional, tag = "5")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "5")]
+    pub shuffle_seed: Option<u32>,
     #[prost(int32, optional, tag = "6")]
     pub shuffle_pivot_index: Option<i32>,
     #[prost(bool, optional, tag = "7")]
@@ -257,8 +257,8 @@ pub struct QueueInsertTracksMessage {
     pub track_ids: Vec<i32>,
     #[prost(int32, optional, tag = "4")]
     pub insert_after: Option<i32>,
-    #[prost(int32, optional, tag = "5")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "5")]
+    pub shuffle_seed: Option<u32>,
     #[prost(bytes = "vec", optional, tag = "6")]
     pub context_uuid: Option<Vec<u8>>,
     #[prost(bool, optional, tag = "7")]
@@ -275,8 +275,8 @@ pub struct QueueAddTracksMessage {
     pub action_uuid: Option<Vec<u8>>,
     #[prost(int32, repeated, packed = "false", tag = "3")]
     pub track_ids: Vec<i32>,
-    #[prost(int32, optional, tag = "4")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "4")]
+    pub shuffle_seed: Option<u32>,
     #[prost(bytes = "vec", optional, tag = "5")]
     pub context_uuid: Option<Vec<u8>>,
     #[prost(bool, optional, tag = "6")]
@@ -323,8 +323,8 @@ pub struct SetShuffleModeMessage {
     pub action_uuid: Option<Vec<u8>>,
     #[prost(bool, optional, tag = "3")]
     pub shuffle_mode: Option<bool>,
-    #[prost(int32, optional, tag = "4")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "4")]
+    pub shuffle_seed: Option<u32>,
     #[prost(int32, optional, tag = "5")]
     pub shuffle_pivot_queue_item_id: Option<i32>,
     #[prost(bool, optional, tag = "6")]
@@ -447,8 +447,8 @@ pub struct QueueTracksLoadedMessage {
     pub tracks: Vec<QueueTrack>,
     #[prost(int32, optional, tag = "4")]
     pub queue_position: Option<i32>,
-    #[prost(int32, optional, tag = "5")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "5")]
+    pub shuffle_seed: Option<u32>,
     #[prost(int32, optional, tag = "6")]
     pub shuffle_pivot_queue_item_id: Option<i32>,
     #[prost(bool, optional, tag = "7")]
@@ -473,8 +473,8 @@ pub struct QueueTracksInsertedMessage {
     pub tracks: Vec<QueueTrack>,
     #[prost(int32, optional, tag = "4")]
     pub insert_after: Option<i32>,
-    #[prost(int32, optional, tag = "5")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "5")]
+    pub shuffle_seed: Option<u32>,
     #[prost(bytes = "vec", optional, tag = "6")]
     pub context_uuid: Option<Vec<u8>>,
     #[prost(bool, optional, tag = "7")]
@@ -493,8 +493,8 @@ pub struct QueueTracksAddedMessage {
     pub action_uuid: Option<Vec<u8>>,
     #[prost(message, repeated, tag = "3")]
     pub tracks: Vec<QueueTrack>,
-    #[prost(int32, optional, tag = "4")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "4")]
+    pub shuffle_seed: Option<u32>,
     #[prost(bytes = "vec", optional, tag = "5")]
     pub context_uuid: Option<Vec<u8>>,
     #[prost(bool, optional, tag = "6")]
@@ -547,8 +547,8 @@ pub struct ShuffleModeSetMessage {
     pub action_uuid: Option<Vec<u8>>,
     #[prost(bool, optional, tag = "3")]
     pub shuffle_mode: Option<bool>,
-    #[prost(int32, optional, tag = "4")]
-    pub shuffle_seed: Option<i32>,
+    #[prost(fixed32, optional, tag = "4")]
+    pub shuffle_seed: Option<u32>,
     #[prost(int32, optional, tag = "5")]
     pub shuffle_pivot_queue_item_id: Option<i32>,
     #[prost(bool, optional, tag = "6")]
