@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use qconnect_app::{
-    QConnectQueueState, QConnectRendererState, QconnectApp, QconnectAppEvent, QconnectEventSink,
-    QueueCommandType, RendererCommand,
+    evaluate_remote_queue_admission, resolve_handoff_intent, HandoffIntent, QConnectQueueState,
+    QConnectRendererState, QconnectApp, QconnectAppEvent, QconnectEventSink, QueueCommandType,
+    RendererCommand, TrackOrigin,
 };
 use qconnect_transport_ws::{NativeWsTransport, WsTransportConfig};
 use serde::{Deserialize, Serialize};
@@ -92,6 +93,17 @@ impl QconnectOutboundCommandType {
             Self::AskForQueueState => QueueCommandType::CtrlSrvrAskForQueueState,
         }
     }
+
+    const fn requires_remote_queue_admission(self) -> bool {
+        matches!(
+            self,
+            Self::QueueAddTracks
+                | Self::QueueLoadTracks
+                | Self::QueueInsertTracks
+                | Self::SetQueueState
+                | Self::AutoplayLoadTracks
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +111,68 @@ pub struct QconnectSendCommandRequest {
     pub command_type: QconnectOutboundCommandType,
     #[serde(default)]
     pub payload: Value,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QconnectTrackOrigin {
+    QobuzOnline,
+    QobuzOfflineCache,
+    LocalLibrary,
+    Plex,
+    ExternalUnknown,
+}
+
+impl QconnectTrackOrigin {
+    const fn into_core_origin(self) -> TrackOrigin {
+        match self {
+            Self::QobuzOnline => TrackOrigin::QobuzOnline,
+            Self::QobuzOfflineCache => TrackOrigin::QobuzOfflineCache,
+            Self::LocalLibrary => TrackOrigin::LocalLibrary,
+            Self::Plex => TrackOrigin::Plex,
+            Self::ExternalUnknown => TrackOrigin::ExternalUnknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QconnectHandoffIntent {
+    ContinueLocally,
+    SendToConnect,
+}
+
+impl QconnectHandoffIntent {
+    const fn from_core(intent: HandoffIntent) -> Self {
+        match intent {
+            HandoffIntent::ContinueLocally => Self::ContinueLocally,
+            HandoffIntent::SendToConnect => Self::SendToConnect,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QconnectAdmissionResult {
+    pub accepted: bool,
+    pub reason: String,
+    pub origin: QconnectTrackOrigin,
+    pub handoff_intent: QconnectHandoffIntent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QconnectSendCommandWithAdmissionRequest {
+    pub command_type: QconnectOutboundCommandType,
+    pub origin: QconnectTrackOrigin,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QconnectAdmissionBlockedEvent {
+    pub command_type: QconnectOutboundCommandType,
+    pub origin: QconnectTrackOrigin,
+    pub reason: String,
+    pub handoff_intent: QconnectHandoffIntent,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -493,6 +567,58 @@ pub async fn v2_qconnect_send_command(
 }
 
 #[tauri::command]
+pub async fn v2_qconnect_evaluate_queue_admission(
+    origin: QconnectTrackOrigin,
+) -> Result<QconnectAdmissionResult, RuntimeError> {
+    let core_origin = origin.into_core_origin();
+    let decision = evaluate_remote_queue_admission(core_origin);
+    let handoff_intent = resolve_handoff_intent(core_origin);
+
+    Ok(QconnectAdmissionResult {
+        accepted: decision.accepted,
+        reason: decision.reason.to_string(),
+        origin,
+        handoff_intent: QconnectHandoffIntent::from_core(handoff_intent),
+    })
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_send_command_with_admission(
+    request: QconnectSendCommandWithAdmissionRequest,
+    service: State<'_, QconnectServiceState>,
+    app_handle: AppHandle,
+) -> Result<String, RuntimeError> {
+    if request.command_type.requires_remote_queue_admission() {
+        let core_origin = request.origin.into_core_origin();
+        let decision = evaluate_remote_queue_admission(core_origin);
+        if !decision.accepted {
+            let blocked_event = QconnectAdmissionBlockedEvent {
+                command_type: request.command_type,
+                origin: request.origin,
+                reason: decision.reason.to_string(),
+                handoff_intent: QconnectHandoffIntent::from_core(resolve_handoff_intent(
+                    core_origin,
+                )),
+            };
+
+            if let Err(err) = app_handle.emit("qconnect:admission_blocked", &blocked_event) {
+                log::warn!("[QConnect] Failed to emit admission_blocked event: {err}");
+            }
+
+            return Err(RuntimeError::Internal(format!(
+                "qconnect admission blocked: {}",
+                decision.reason
+            )));
+        }
+    }
+
+    service
+        .send_command(request.command_type.to_queue_command_type(), request.payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
 pub async fn v2_qconnect_join_session(
     request: QconnectJoinSessionRequest,
     service: State<'_, QconnectServiceState>,
@@ -726,9 +852,9 @@ fn decode_hex_channel(raw: &str) -> Result<Vec<u8>, String> {
 mod tests {
     use super::{
         decode_hex_channel, normalize_volume_to_fraction, parse_subscribe_channels,
-        QconnectOutboundCommandType,
+        QconnectHandoffIntent, QconnectOutboundCommandType, QconnectTrackOrigin,
     };
-    use qconnect_app::QueueCommandType;
+    use qconnect_app::{resolve_handoff_intent, QueueCommandType};
 
     #[test]
     fn decodes_hex_channels() {
@@ -774,6 +900,33 @@ mod tests {
         assert_eq!(
             QconnectOutboundCommandType::AskForRendererState.to_queue_command_type(),
             QueueCommandType::CtrlSrvrAskForRendererState
+        );
+    }
+
+    #[test]
+    fn flags_commands_that_require_remote_queue_admission() {
+        assert!(QconnectOutboundCommandType::QueueAddTracks.requires_remote_queue_admission());
+        assert!(QconnectOutboundCommandType::QueueLoadTracks.requires_remote_queue_admission());
+        assert!(QconnectOutboundCommandType::QueueInsertTracks.requires_remote_queue_admission());
+        assert!(QconnectOutboundCommandType::SetQueueState.requires_remote_queue_admission());
+        assert!(QconnectOutboundCommandType::AutoplayLoadTracks.requires_remote_queue_admission());
+        assert!(!QconnectOutboundCommandType::QueueRemoveTracks.requires_remote_queue_admission());
+        assert!(!QconnectOutboundCommandType::ClearQueue.requires_remote_queue_admission());
+        assert!(!QconnectOutboundCommandType::SetVolume.requires_remote_queue_admission());
+    }
+
+    #[test]
+    fn maps_qconnect_track_origin_to_core_origin_and_handoff() {
+        let local_core_origin = QconnectTrackOrigin::LocalLibrary.into_core_origin();
+        assert_eq!(
+            QconnectHandoffIntent::from_core(resolve_handoff_intent(local_core_origin)),
+            QconnectHandoffIntent::ContinueLocally
+        );
+
+        let qobuz_core_origin = QconnectTrackOrigin::QobuzOnline.into_core_origin();
+        assert_eq!(
+            QconnectHandoffIntent::from_core(resolve_handoff_intent(qobuz_core_origin)),
+            QconnectHandoffIntent::SendToConnect
         );
     }
 }

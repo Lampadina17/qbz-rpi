@@ -15,6 +15,9 @@ pub use feature_flags::{
     QBZ_QCONNECT_PANEL_SWITCH, QBZ_QCONNECT_QUEUE_MODEL, QBZ_QCONNECT_STRICT_DOMAIN_ISOLATION,
     QBZ_QCONNECT_TRANSPORT,
 };
-pub use qconnect_core::{QConnectQueueState, QConnectRendererState, RendererCommand};
+pub use qconnect_core::{
+    evaluate_remote_queue_admission, resolve_handoff_intent, AdmissionDecision, HandoffIntent,
+    QConnectQueueState, QConnectRendererState, RendererCommand, TrackOrigin,
+};
 pub use qconnect_protocol::QueueCommandType;
 pub use state::QconnectRuntimeState;

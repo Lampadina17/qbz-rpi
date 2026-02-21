@@ -682,6 +682,8 @@ pub fn run() {
             qconnect_service::v2_qconnect_disconnect,
             qconnect_service::v2_qconnect_status,
             qconnect_service::v2_qconnect_send_command,
+            qconnect_service::v2_qconnect_evaluate_queue_admission,
+            qconnect_service::v2_qconnect_send_command_with_admission,
             qconnect_service::v2_qconnect_join_session,
             qconnect_service::v2_qconnect_set_player_state,
             qconnect_service::v2_qconnect_set_active_renderer,
