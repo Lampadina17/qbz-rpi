@@ -1,6 +1,22 @@
 #[derive(Clone, Copy, PartialEq, Eq, Debug, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum QConnectMessageType {
+    MessageTypeRndrSrvrJoinSession = 21,
+    MessageTypeRndrSrvrDeviceInfoUpdated = 22,
+    MessageTypeRndrSrvrStateUpdated = 23,
+    MessageTypeRndrSrvrRendererAction = 24,
+    MessageTypeRndrSrvrVolumeChanged = 25,
+    MessageTypeRndrSrvrFileAudioQualityChanged = 26,
+    MessageTypeRndrSrvrDeviceAudioQualityChanged = 27,
+    MessageTypeRndrSrvrMaxAudioQualityChanged = 28,
+    MessageTypeRndrSrvrVolumeMuted = 29,
+    MessageTypeSrvrRndrSetState = 41,
+    MessageTypeSrvrRndrSetVolume = 42,
+    MessageTypeSrvrRndrSetActive = 43,
+    MessageTypeSrvrRndrSetMaxAudioQuality = 44,
+    MessageTypeSrvrRndrSetLoopMode = 45,
+    MessageTypeSrvrRndrSetShuffleMode = 46,
+    MessageTypeSrvrRndrMuteVolume = 47,
     MessageTypeCtrlSrvrClearQueue = 65,
     MessageTypeCtrlSrvrQueueLoadTracks = 66,
     MessageTypeCtrlSrvrQueueInsertTracks = 67,
@@ -461,6 +477,122 @@ pub struct QueueTracksAddedFromAutoplayMessage {
 }
 
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererSetStateMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub playing_state: Option<i32>,
+    #[prost(int32, optional, tag = "2")]
+    pub current_position: Option<i32>,
+    #[prost(message, optional, tag = "3")]
+    pub queue_version: Option<QueueVersionRef>,
+    #[prost(message, optional, tag = "4")]
+    pub current_track: Option<QueueTrackWithContext>,
+    #[prost(message, optional, tag = "5")]
+    pub next_track: Option<QueueTrackWithContext>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererSetVolumeMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub volume: Option<i32>,
+    #[prost(int32, optional, tag = "2")]
+    pub volume_delta: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererSetActiveMessage {
+    #[prost(bool, optional, tag = "1")]
+    pub active: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererSetMaxAudioQualityMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub max_audio_quality: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererSetLoopModeMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub loop_mode: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererSetShuffleModeMessage {
+    #[prost(bool, optional, tag = "1")]
+    pub shuffle_mode: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererMuteVolumeMessage {
+    #[prost(bool, optional, tag = "1")]
+    pub value: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PlaybackPositionMessage {
+    #[prost(uint64, optional, tag = "1")]
+    pub timestamp: Option<u64>,
+    #[prost(int32, optional, tag = "2")]
+    pub value: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererStateMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub playing_state: Option<i32>,
+    #[prost(int32, optional, tag = "2")]
+    pub buffer_state: Option<i32>,
+    #[prost(message, optional, tag = "3")]
+    pub current_position: Option<PlaybackPositionMessage>,
+    #[prost(int32, optional, tag = "4")]
+    pub duration: Option<i32>,
+    #[prost(message, optional, tag = "5")]
+    pub queue_version: Option<QueueVersionRef>,
+    #[prost(int32, optional, tag = "6")]
+    pub current_queue_item_id: Option<i32>,
+    #[prost(int32, optional, tag = "7")]
+    pub next_queue_item_id: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererStateUpdatedMessage {
+    #[prost(message, optional, tag = "1")]
+    pub state: Option<RendererStateMessage>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererVolumeChangedMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub volume: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererVolumeMutedMessage {
+    #[prost(bool, optional, tag = "1")]
+    pub value: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererFileAudioQualityChangedMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub sampling_rate: Option<i32>,
+    #[prost(int32, optional, tag = "2")]
+    pub bit_depth: Option<i32>,
+    #[prost(int32, optional, tag = "3")]
+    pub nb_channels: Option<i32>,
+    #[prost(int32, optional, tag = "4")]
+    pub audio_quality: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererMaxAudioQualityChangedMessage {
+    #[prost(int32, optional, tag = "1")]
+    pub max_audio_quality: Option<i32>,
+    #[prost(int32, optional, tag = "2")]
+    pub network_type: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QConnectMessages {
     #[prost(uint64, optional, tag = "1")]
     pub messages_time: Option<u64>,
@@ -474,6 +606,30 @@ pub struct QConnectMessages {
 pub struct QConnectMessage {
     #[prost(int32, optional, tag = "1")]
     pub message_type: Option<i32>,
+    #[prost(message, optional, tag = "23")]
+    pub rndr_srvr_state_updated: Option<RendererStateUpdatedMessage>,
+    #[prost(message, optional, tag = "25")]
+    pub rndr_srvr_volume_changed: Option<RendererVolumeChangedMessage>,
+    #[prost(message, optional, tag = "26")]
+    pub rndr_srvr_file_audio_quality_changed: Option<RendererFileAudioQualityChangedMessage>,
+    #[prost(message, optional, tag = "28")]
+    pub rndr_srvr_max_audio_quality_changed: Option<RendererMaxAudioQualityChangedMessage>,
+    #[prost(message, optional, tag = "29")]
+    pub rndr_srvr_volume_muted: Option<RendererVolumeMutedMessage>,
+    #[prost(message, optional, tag = "41")]
+    pub srvr_rndr_set_state: Option<RendererSetStateMessage>,
+    #[prost(message, optional, tag = "42")]
+    pub srvr_rndr_set_volume: Option<RendererSetVolumeMessage>,
+    #[prost(message, optional, tag = "43")]
+    pub srvr_rndr_set_active: Option<RendererSetActiveMessage>,
+    #[prost(message, optional, tag = "44")]
+    pub srvr_rndr_set_max_audio_quality: Option<RendererSetMaxAudioQualityMessage>,
+    #[prost(message, optional, tag = "45")]
+    pub srvr_rndr_set_loop_mode: Option<RendererSetLoopModeMessage>,
+    #[prost(message, optional, tag = "46")]
+    pub srvr_rndr_set_shuffle_mode: Option<RendererSetShuffleModeMessage>,
+    #[prost(message, optional, tag = "47")]
+    pub srvr_rndr_mute_volume: Option<RendererMuteVolumeMessage>,
     #[prost(message, optional, tag = "65")]
     pub ctrl_srvr_clear_queue: Option<ClearQueueMessage>,
     #[prost(message, optional, tag = "66")]

@@ -10,9 +10,12 @@ use crate::{
         QueueErrorMessage, QueueStateMessage, QueueTrack, QueueTrackWithContext,
         QueueTracksAddedFromAutoplayMessage, QueueTracksAddedMessage, QueueTracksInsertedMessage,
         QueueTracksLoadedMessage, QueueTracksRemovedMessage, QueueTracksReorderedMessage,
-        QueueVersionRef, ShuffleModeSetMessage,
+        QueueVersionRef, RendererMuteVolumeMessage, RendererSetActiveMessage,
+        RendererSetLoopModeMessage, RendererSetMaxAudioQualityMessage,
+        RendererSetShuffleModeMessage, RendererSetStateMessage, RendererSetVolumeMessage,
+        ShuffleModeSetMessage,
     },
-    ProtocolError, QueueEventType, QueueServerEvent,
+    ProtocolError, QueueEventType, QueueServerEvent, RendererCommandType, RendererServerCommand,
 };
 
 pub fn decode_queue_server_events(payload: &[u8]) -> Result<Vec<QueueServerEvent>, ProtocolError> {
@@ -31,7 +34,7 @@ pub fn decode_queue_server_events(payload: &[u8]) -> Result<Vec<QueueServerEvent
 fn decode_queue_server_event(
     message: QConnectMessage,
 ) -> Result<Option<QueueServerEvent>, ProtocolError> {
-    let message_type = resolve_message_type(&message);
+    let message_type = resolve_queue_message_type(&message);
     let Some(message_type) = message_type else {
         return Ok(None);
     };
@@ -123,7 +126,7 @@ fn decode_queue_server_event(
     Ok(Some(event))
 }
 
-fn resolve_message_type(message: &QConnectMessage) -> Option<i32> {
+fn resolve_queue_message_type(message: &QConnectMessage) -> Option<i32> {
     message.message_type.or_else(|| {
         if message.srvr_ctrl_queue_error_message.is_some() {
             return Some(QConnectMessageType::MessageTypeSrvrCtrlQueueErrorMessage as i32);
@@ -167,6 +170,197 @@ fn resolve_message_type(message: &QConnectMessage) -> Option<i32> {
             );
         }
         None
+    })
+}
+
+pub fn decode_renderer_server_commands(
+    payload: &[u8],
+) -> Result<Vec<RendererServerCommand>, ProtocolError> {
+    let batch = QConnectMessages::decode(payload)?;
+    let mut commands = Vec::new();
+
+    for message in batch.messages {
+        if let Some(command) = decode_renderer_server_command(message)? {
+            commands.push(command);
+        }
+    }
+
+    Ok(commands)
+}
+
+fn decode_renderer_server_command(
+    message: QConnectMessage,
+) -> Result<Option<RendererServerCommand>, ProtocolError> {
+    let message_type = resolve_renderer_message_type(&message);
+    let Some(message_type) = message_type else {
+        return Ok(None);
+    };
+
+    let command = match message_type {
+        code if code == QConnectMessageType::MessageTypeSrvrRndrSetState as i32 => {
+            let Some(payload) = message.srvr_rndr_set_state else {
+                return Ok(None);
+            };
+            map_srvr_rndr_set_state(payload)?
+        }
+        code if code == QConnectMessageType::MessageTypeSrvrRndrSetVolume as i32 => {
+            let Some(payload) = message.srvr_rndr_set_volume else {
+                return Ok(None);
+            };
+            map_srvr_rndr_set_volume(payload)?
+        }
+        code if code == QConnectMessageType::MessageTypeSrvrRndrSetActive as i32 => {
+            let Some(payload) = message.srvr_rndr_set_active else {
+                return Ok(None);
+            };
+            map_srvr_rndr_set_active(payload)?
+        }
+        code if code == QConnectMessageType::MessageTypeSrvrRndrSetMaxAudioQuality as i32 => {
+            let Some(payload) = message.srvr_rndr_set_max_audio_quality else {
+                return Ok(None);
+            };
+            map_srvr_rndr_set_max_audio_quality(payload)?
+        }
+        code if code == QConnectMessageType::MessageTypeSrvrRndrSetLoopMode as i32 => {
+            let Some(payload) = message.srvr_rndr_set_loop_mode else {
+                return Ok(None);
+            };
+            map_srvr_rndr_set_loop_mode(payload)?
+        }
+        code if code == QConnectMessageType::MessageTypeSrvrRndrSetShuffleMode as i32 => {
+            let Some(payload) = message.srvr_rndr_set_shuffle_mode else {
+                return Ok(None);
+            };
+            map_srvr_rndr_set_shuffle_mode(payload)?
+        }
+        code if code == QConnectMessageType::MessageTypeSrvrRndrMuteVolume as i32 => {
+            let Some(payload) = message.srvr_rndr_mute_volume else {
+                return Ok(None);
+            };
+            map_srvr_rndr_mute_volume(payload)?
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(command))
+}
+
+fn resolve_renderer_message_type(message: &QConnectMessage) -> Option<i32> {
+    message.message_type.or_else(|| {
+        if message.srvr_rndr_set_state.is_some() {
+            return Some(QConnectMessageType::MessageTypeSrvrRndrSetState as i32);
+        }
+        if message.srvr_rndr_set_volume.is_some() {
+            return Some(QConnectMessageType::MessageTypeSrvrRndrSetVolume as i32);
+        }
+        if message.srvr_rndr_set_active.is_some() {
+            return Some(QConnectMessageType::MessageTypeSrvrRndrSetActive as i32);
+        }
+        if message.srvr_rndr_set_max_audio_quality.is_some() {
+            return Some(QConnectMessageType::MessageTypeSrvrRndrSetMaxAudioQuality as i32);
+        }
+        if message.srvr_rndr_set_loop_mode.is_some() {
+            return Some(QConnectMessageType::MessageTypeSrvrRndrSetLoopMode as i32);
+        }
+        if message.srvr_rndr_set_shuffle_mode.is_some() {
+            return Some(QConnectMessageType::MessageTypeSrvrRndrSetShuffleMode as i32);
+        }
+        if message.srvr_rndr_mute_volume.is_some() {
+            return Some(QConnectMessageType::MessageTypeSrvrRndrMuteVolume as i32);
+        }
+        None
+    })
+}
+
+fn map_srvr_rndr_set_state(
+    payload: RendererSetStateMessage,
+) -> Result<RendererServerCommand, ProtocolError> {
+    let current_track = payload
+        .current_track
+        .map(queue_track_with_context_to_json)
+        .transpose()?;
+    let next_track = payload
+        .next_track
+        .map(queue_track_with_context_to_json)
+        .transpose()?;
+    let queue_version = queue_version_opt(payload.queue_version)?;
+
+    Ok(RendererServerCommand {
+        command_type: RendererCommandType::SrvrRndrSetState,
+        payload: json!({
+            "playing_state": payload.playing_state,
+            "current_position": optional_i32_to_u64(payload.current_position)?,
+            "queue_version": queue_version,
+            "current_track": current_track,
+            "next_track": next_track
+        }),
+    })
+}
+
+fn map_srvr_rndr_set_volume(
+    payload: RendererSetVolumeMessage,
+) -> Result<RendererServerCommand, ProtocolError> {
+    Ok(RendererServerCommand {
+        command_type: RendererCommandType::SrvrRndrSetVolume,
+        payload: json!({
+            "volume": payload.volume,
+            "volume_delta": payload.volume_delta
+        }),
+    })
+}
+
+fn map_srvr_rndr_set_active(
+    payload: RendererSetActiveMessage,
+) -> Result<RendererServerCommand, ProtocolError> {
+    Ok(RendererServerCommand {
+        command_type: RendererCommandType::SrvrRndrSetActive,
+        payload: json!({
+            "active": payload.active.unwrap_or(false)
+        }),
+    })
+}
+
+fn map_srvr_rndr_set_max_audio_quality(
+    payload: RendererSetMaxAudioQualityMessage,
+) -> Result<RendererServerCommand, ProtocolError> {
+    Ok(RendererServerCommand {
+        command_type: RendererCommandType::SrvrRndrSetMaxAudioQuality,
+        payload: json!({
+            "max_audio_quality": payload.max_audio_quality
+        }),
+    })
+}
+
+fn map_srvr_rndr_set_loop_mode(
+    payload: RendererSetLoopModeMessage,
+) -> Result<RendererServerCommand, ProtocolError> {
+    Ok(RendererServerCommand {
+        command_type: RendererCommandType::SrvrRndrSetLoopMode,
+        payload: json!({
+            "loop_mode": payload.loop_mode
+        }),
+    })
+}
+
+fn map_srvr_rndr_set_shuffle_mode(
+    payload: RendererSetShuffleModeMessage,
+) -> Result<RendererServerCommand, ProtocolError> {
+    Ok(RendererServerCommand {
+        command_type: RendererCommandType::SrvrRndrSetShuffleMode,
+        payload: json!({
+            "shuffle_mode": payload.shuffle_mode.unwrap_or(false)
+        }),
+    })
+}
+
+fn map_srvr_rndr_mute_volume(
+    payload: RendererMuteVolumeMessage,
+) -> Result<RendererServerCommand, ProtocolError> {
+    Ok(RendererServerCommand {
+        command_type: RendererCommandType::SrvrRndrMuteVolume,
+        payload: json!({
+            "value": payload.value.unwrap_or(false)
+        }),
     })
 }
 
@@ -548,11 +742,12 @@ mod tests {
     use prost::Message;
 
     use crate::queue_command_proto::{
-        QConnectMessage, QConnectMessageType, QConnectMessages, QueueTrack,
-        QueueTracksAddedMessage, QueueVersionRef,
+        QConnectMessage, QConnectMessageType, QConnectMessages, QueueTrack, QueueTrackWithContext,
+        QueueTracksAddedMessage, QueueVersionRef, RendererMuteVolumeMessage,
+        RendererSetStateMessage,
     };
 
-    use super::decode_queue_server_events;
+    use super::{decode_queue_server_events, decode_renderer_server_commands};
 
     #[test]
     fn decodes_tracks_added_server_event_batch() {
@@ -600,5 +795,72 @@ mod tests {
             events[0].message_type(),
             "MESSAGE_TYPE_SRVR_CTRL_QUEUE_TRACKS_ADDED"
         );
+    }
+
+    #[test]
+    fn decodes_srvr_rndr_set_state_command_batch() {
+        let message = QConnectMessage {
+            message_type: Some(QConnectMessageType::MessageTypeSrvrRndrSetState as i32),
+            srvr_rndr_set_state: Some(RendererSetStateMessage {
+                playing_state: Some(2),
+                current_position: Some(42_000),
+                queue_version: Some(QueueVersionRef {
+                    major: Some(7),
+                    minor: Some(8),
+                }),
+                current_track: Some(QueueTrackWithContext {
+                    queue_item_id: Some(1001),
+                    track_id: Some(555_666),
+                    context_uuid: Some(
+                        uuid::Uuid::parse_str("95f28997-6c88-47cc-a535-9f8e5b9c5fe1")
+                            .expect("context uuid")
+                            .as_bytes()
+                            .to_vec(),
+                    ),
+                }),
+                next_track: None,
+            }),
+            ..Default::default()
+        };
+
+        let batch = QConnectMessages {
+            messages_time: Some(1),
+            messages_id: Some(2),
+            messages: vec![message],
+        };
+        let encoded = batch.encode_to_vec();
+
+        let commands = decode_renderer_server_commands(&encoded).expect("decode renderer commands");
+        assert_eq!(commands.len(), 1);
+        assert_eq!(
+            commands[0].message_type(),
+            "MESSAGE_TYPE_SRVR_RNDR_SET_STATE"
+        );
+        assert_eq!(commands[0].payload["playing_state"], 2);
+        assert_eq!(commands[0].payload["current_position"], 42_000);
+    }
+
+    #[test]
+    fn decodes_srvr_rndr_mute_volume_command_batch() {
+        let message = QConnectMessage {
+            message_type: Some(QConnectMessageType::MessageTypeSrvrRndrMuteVolume as i32),
+            srvr_rndr_mute_volume: Some(RendererMuteVolumeMessage { value: Some(true) }),
+            ..Default::default()
+        };
+
+        let batch = QConnectMessages {
+            messages_time: Some(1),
+            messages_id: Some(3),
+            messages: vec![message],
+        };
+        let encoded = batch.encode_to_vec();
+
+        let commands = decode_renderer_server_commands(&encoded).expect("decode renderer commands");
+        assert_eq!(commands.len(), 1);
+        assert_eq!(
+            commands[0].message_type(),
+            "MESSAGE_TYPE_SRVR_RNDR_MUTE_VOLUME"
+        );
+        assert_eq!(commands[0].payload["value"], true);
     }
 }
