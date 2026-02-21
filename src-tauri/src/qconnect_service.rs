@@ -2,10 +2,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use qconnect_app::{
-    QConnectRendererState, QconnectApp, QconnectAppEvent, QconnectEventSink, RendererCommand,
+    QConnectQueueState, QConnectRendererState, QconnectApp, QconnectAppEvent, QconnectEventSink,
+    QueueCommandType, RendererCommand,
 };
 use qconnect_transport_ws::{NativeWsTransport, WsTransportConfig};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, RwLock};
@@ -38,6 +40,135 @@ pub struct QconnectConnectionStatus {
     pub transport_connected: bool,
     pub endpoint_url: Option<String>,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QconnectOutboundCommandType {
+    JoinSession,
+    SetPlayerState,
+    SetActiveRenderer,
+    SetVolume,
+    SetLoopMode,
+    MuteVolume,
+    SetMaxAudioQuality,
+    AskForRendererState,
+    QueueAddTracks,
+    QueueLoadTracks,
+    QueueInsertTracks,
+    QueueRemoveTracks,
+    QueueReorderTracks,
+    ClearQueue,
+    SetShuffleMode,
+    SetAutoplayMode,
+    AutoplayLoadTracks,
+    AutoplayRemoveTracks,
+    SetQueueState,
+    AskForQueueState,
+}
+
+impl QconnectOutboundCommandType {
+    const fn to_queue_command_type(self) -> QueueCommandType {
+        match self {
+            Self::JoinSession => QueueCommandType::CtrlSrvrJoinSession,
+            Self::SetPlayerState => QueueCommandType::CtrlSrvrSetPlayerState,
+            Self::SetActiveRenderer => QueueCommandType::CtrlSrvrSetActiveRenderer,
+            Self::SetVolume => QueueCommandType::CtrlSrvrSetVolume,
+            Self::SetLoopMode => QueueCommandType::CtrlSrvrSetLoopMode,
+            Self::MuteVolume => QueueCommandType::CtrlSrvrMuteVolume,
+            Self::SetMaxAudioQuality => QueueCommandType::CtrlSrvrSetMaxAudioQuality,
+            Self::AskForRendererState => QueueCommandType::CtrlSrvrAskForRendererState,
+            Self::QueueAddTracks => QueueCommandType::CtrlSrvrQueueAddTracks,
+            Self::QueueLoadTracks => QueueCommandType::CtrlSrvrQueueLoadTracks,
+            Self::QueueInsertTracks => QueueCommandType::CtrlSrvrQueueInsertTracks,
+            Self::QueueRemoveTracks => QueueCommandType::CtrlSrvrQueueRemoveTracks,
+            Self::QueueReorderTracks => QueueCommandType::CtrlSrvrQueueReorderTracks,
+            Self::ClearQueue => QueueCommandType::CtrlSrvrClearQueue,
+            Self::SetShuffleMode => QueueCommandType::CtrlSrvrSetShuffleMode,
+            Self::SetAutoplayMode => QueueCommandType::CtrlSrvrSetAutoplayMode,
+            Self::AutoplayLoadTracks => QueueCommandType::CtrlSrvrAutoplayLoadTracks,
+            Self::AutoplayRemoveTracks => QueueCommandType::CtrlSrvrAutoplayRemoveTracks,
+            Self::SetQueueState => QueueCommandType::CtrlSrvrSetQueueState,
+            Self::AskForQueueState => QueueCommandType::CtrlSrvrAskForQueueState,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QconnectSendCommandRequest {
+    pub command_type: QconnectOutboundCommandType,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectDeviceInfoPayload {
+    pub device_uuid: Option<String>,
+    pub friendly_name: Option<String>,
+    pub brand: Option<String>,
+    pub model: Option<String>,
+    pub serial_number: Option<String>,
+    pub device_type: Option<i32>,
+    pub software_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectJoinSessionRequest {
+    pub session_uuid: Option<String>,
+    pub device_info: Option<QconnectDeviceInfoPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QconnectQueueVersionPayload {
+    pub major: u64,
+    pub minor: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectSetPlayerStateQueueItemPayload {
+    pub queue_version: Option<QconnectQueueVersionPayload>,
+    pub id: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectSetPlayerStateRequest {
+    pub playing_state: Option<i32>,
+    pub current_position: Option<i32>,
+    pub current_queue_item: Option<QconnectSetPlayerStateQueueItemPayload>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectSetActiveRendererRequest {
+    pub renderer_id: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectSetVolumeRequest {
+    pub renderer_id: Option<i32>,
+    pub volume: Option<i32>,
+    pub volume_delta: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectSetLoopModeRequest {
+    pub loop_mode: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectMuteVolumeRequest {
+    pub renderer_id: Option<i32>,
+    pub value: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectSetMaxAudioQualityRequest {
+    pub renderer_id: Option<i32>,
+    pub max_audio_quality: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectAskForRendererStateRequest {
+    pub renderer_id: Option<i32>,
 }
 
 struct QconnectRuntime {
@@ -193,6 +324,52 @@ impl QconnectServiceState {
             last_error,
         }
     }
+
+    pub async fn send_command(
+        &self,
+        command_type: QueueCommandType,
+        payload: Value,
+    ) -> Result<String, String> {
+        let app = {
+            let guard = self.inner.lock().await;
+            guard
+                .runtime
+                .as_ref()
+                .map(|runtime| Arc::clone(&runtime.app))
+                .ok_or_else(|| "QConnect service is not running".to_string())?
+        };
+
+        let command = app.build_queue_command(command_type, payload).await;
+        app.send_queue_command(command)
+            .await
+            .map_err(|err| format!("qconnect send command failed: {err}"))
+    }
+
+    pub async fn queue_snapshot(&self) -> Result<QConnectQueueState, String> {
+        let app = {
+            let guard = self.inner.lock().await;
+            guard
+                .runtime
+                .as_ref()
+                .map(|runtime| Arc::clone(&runtime.app))
+                .ok_or_else(|| "QConnect service is not running".to_string())?
+        };
+
+        Ok(app.queue_state_snapshot().await)
+    }
+
+    pub async fn renderer_snapshot(&self) -> Result<QConnectRendererState, String> {
+        let app = {
+            let guard = self.inner.lock().await;
+            guard
+                .runtime
+                .as_ref()
+                .map(|runtime| Arc::clone(&runtime.app))
+                .ok_or_else(|| "QConnect service is not running".to_string())?
+        };
+
+        Ok(app.renderer_state_snapshot().await)
+    }
 }
 
 impl Default for QconnectServiceState {
@@ -301,6 +478,159 @@ pub async fn v2_qconnect_status(
     Ok(service.status().await)
 }
 
+#[tauri::command]
+pub async fn v2_qconnect_send_command(
+    request: QconnectSendCommandRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    service
+        .send_command(
+            request.command_type.to_queue_command_type(),
+            request.payload,
+        )
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_join_session(
+    request: QconnectJoinSessionRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    let payload = serde_json::to_value(request)
+        .map_err(|err| RuntimeError::Internal(format!("serialize join_session request: {err}")))?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrJoinSession, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_set_player_state(
+    request: QconnectSetPlayerStateRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    let payload = serde_json::to_value(request).map_err(|err| {
+        RuntimeError::Internal(format!("serialize set_player_state request: {err}"))
+    })?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrSetPlayerState, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_set_active_renderer(
+    request: QconnectSetActiveRendererRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    let payload = serde_json::to_value(request).map_err(|err| {
+        RuntimeError::Internal(format!("serialize set_active_renderer request: {err}"))
+    })?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrSetActiveRenderer, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_set_volume(
+    request: QconnectSetVolumeRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    if request.volume.is_some() && request.volume_delta.is_some() {
+        return Err(RuntimeError::Internal(
+            "set_volume request must use either 'volume' or 'volume_delta', not both".to_string(),
+        ));
+    }
+    if request.volume.is_none() && request.volume_delta.is_none() {
+        return Err(RuntimeError::Internal(
+            "set_volume request must provide one of: volume, volume_delta".to_string(),
+        ));
+    }
+
+    let payload = serde_json::to_value(request)
+        .map_err(|err| RuntimeError::Internal(format!("serialize set_volume request: {err}")))?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrSetVolume, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_set_loop_mode(
+    request: QconnectSetLoopModeRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    let payload = serde_json::to_value(request)
+        .map_err(|err| RuntimeError::Internal(format!("serialize set_loop_mode request: {err}")))?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrSetLoopMode, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_mute_volume(
+    request: QconnectMuteVolumeRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    let payload = serde_json::to_value(request)
+        .map_err(|err| RuntimeError::Internal(format!("serialize mute_volume request: {err}")))?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrMuteVolume, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_set_max_audio_quality(
+    request: QconnectSetMaxAudioQualityRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    let payload = serde_json::to_value(request).map_err(|err| {
+        RuntimeError::Internal(format!("serialize set_max_audio_quality request: {err}"))
+    })?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrSetMaxAudioQuality, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_ask_for_renderer_state(
+    request: QconnectAskForRendererStateRequest,
+    service: State<'_, QconnectServiceState>,
+) -> Result<String, RuntimeError> {
+    let payload = serde_json::to_value(request).map_err(|err| {
+        RuntimeError::Internal(format!("serialize ask_for_renderer_state request: {err}"))
+    })?;
+    service
+        .send_command(QueueCommandType::CtrlSrvrAskForRendererState, payload)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_queue_snapshot(
+    service: State<'_, QconnectServiceState>,
+) -> Result<QConnectQueueState, RuntimeError> {
+    service
+        .queue_snapshot()
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_renderer_snapshot(
+    service: State<'_, QconnectServiceState>,
+) -> Result<QConnectRendererState, RuntimeError> {
+    service
+        .renderer_snapshot()
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
 fn resolve_transport_config(options: QconnectConnectOptions) -> Result<WsTransportConfig, String> {
     let endpoint_url = normalize_opt_string(options.endpoint_url)
         .or_else(|| std::env::var("QBZ_QCONNECT_WS_ENDPOINT").ok())
@@ -394,7 +724,11 @@ fn decode_hex_channel(raw: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_hex_channel, normalize_volume_to_fraction, parse_subscribe_channels};
+    use super::{
+        decode_hex_channel, normalize_volume_to_fraction, parse_subscribe_channels,
+        QconnectOutboundCommandType,
+    };
+    use qconnect_app::QueueCommandType;
 
     #[test]
     fn decodes_hex_channels() {
@@ -417,5 +751,29 @@ mod tests {
         assert!((normalize_volume_to_fraction(58) - 0.58).abs() < f32::EPSILON);
         assert!((normalize_volume_to_fraction(-5) - 0.0).abs() < f32::EPSILON);
         assert!((normalize_volume_to_fraction(125) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn maps_outbound_command_type_to_protocol_command_type() {
+        assert_eq!(
+            QconnectOutboundCommandType::JoinSession.to_queue_command_type(),
+            QueueCommandType::CtrlSrvrJoinSession
+        );
+        assert_eq!(
+            QconnectOutboundCommandType::SetPlayerState.to_queue_command_type(),
+            QueueCommandType::CtrlSrvrSetPlayerState
+        );
+        assert_eq!(
+            QconnectOutboundCommandType::SetActiveRenderer.to_queue_command_type(),
+            QueueCommandType::CtrlSrvrSetActiveRenderer
+        );
+        assert_eq!(
+            QconnectOutboundCommandType::SetVolume.to_queue_command_type(),
+            QueueCommandType::CtrlSrvrSetVolume
+        );
+        assert_eq!(
+            QconnectOutboundCommandType::AskForRendererState.to_queue_command_type(),
+            QueueCommandType::CtrlSrvrAskForRendererState
+        );
     }
 }
