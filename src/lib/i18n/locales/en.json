@@ -1806,7 +1806,12 @@
     "admissionBlockedLocalLibrary": "Local Library tracks cannot be sent to Qobuz Connect queue.",
     "admissionBlockedPlex": "Plex tracks cannot be sent to Qobuz Connect queue.",
     "admissionBlockedUnknown": "Track source is not eligible for Qobuz Connect queue.",
-    "admissionCheckFailed": "Could not validate Qobuz Connect queue admission."
+    "admissionCheckFailed": "Could not validate Qobuz Connect queue admission.",
+    "handoffContinueLocallyHint": "Continue playback locally or select streamable Qobuz tracks to send.",
+    "streamNotEligible": "This track is not eligible for Qobuz Connect queue.",
+    "remoteQueuedNext": "Queued on Qobuz Connect to play next.",
+    "remoteQueuedLater": "Added to Qobuz Connect queue.",
+    "remoteQueueFailed": "Failed to update Qobuz Connect queue."
   },
   "radio": {
     "albumRadio": "Album Radio",

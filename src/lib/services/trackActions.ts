@@ -7,6 +7,7 @@
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { get } from 'svelte/store';
 import {
   addToQueueNext,
   addToQueue,
@@ -15,12 +16,105 @@ import {
 import { addTrackToFavorites } from '$lib/services/playbackService';
 import { openPlaylistModal } from '$lib/stores/uiStore';
 import { showToast as storeShowToast, type ToastType } from '$lib/stores/toastStore';
+import { t } from '$lib/i18n';
 import type { QobuzTrack, Track, PlaylistTrack, LocalLibraryTrack, DisplayTrack } from '$lib/types';
 
 // ============ Toast Integration ============
 
 function showToast(message: string, type: ToastType): void {
   storeShowToast(message, type);
+}
+
+function translate(key: string): string {
+  return get(t)(key);
+}
+
+type QconnectStatus = {
+  transport_connected: boolean;
+};
+
+type QconnectRendererSnapshot = {
+  current_track?: {
+    queue_item_id?: number | null;
+  } | null;
+};
+
+type QconnectTrackOrigin =
+  | 'qobuz_online'
+  | 'qobuz_offline_cache'
+  | 'local_library'
+  | 'plex'
+  | 'external_unknown';
+
+type QconnectAdmissionResult = {
+  accepted: boolean;
+  reason: string;
+  handoff_intent: 'continue_locally' | 'send_to_connect';
+};
+
+type QconnectQueueCommandType = 'queue_add_tracks' | 'queue_insert_tracks';
+type QueueTrackActionOptions = {
+  silent?: boolean;
+};
+
+function qconnectAdmissionReasonKey(reason: string): string {
+  if (reason === 'local_library_tracks_never_enter_remote_qconnect_queue') {
+    return 'qconnect.admissionBlockedLocalLibrary';
+  }
+  if (reason === 'plex_tracks_never_enter_remote_qconnect_queue') {
+    return 'qconnect.admissionBlockedPlex';
+  }
+  return 'qconnect.admissionBlockedUnknown';
+}
+
+function resolveQconnectTrackOrigin(queueTrack: BackendQueueTrack, isLocal: boolean): QconnectTrackOrigin {
+  const source = (queueTrack.source ?? '').toLowerCase();
+  if (source === 'plex') return 'plex';
+  if (source === 'qobuz_download') return isLocal ? 'local_library' : 'qobuz_offline_cache';
+  if (source === 'qobuz') return 'qobuz_online';
+  if (source === 'local' || isLocal || queueTrack.is_local) return 'local_library';
+  return 'external_unknown';
+}
+
+async function isQconnectConnected(): Promise<boolean> {
+  try {
+    const status = await invoke<QconnectStatus>('v2_qconnect_status');
+    return Boolean(status.transport_connected);
+  } catch {
+    return false;
+  }
+}
+
+async function evaluateQconnectAdmission(origin: QconnectTrackOrigin): Promise<QconnectAdmissionResult | null> {
+  try {
+    return await invoke<QconnectAdmissionResult>('v2_qconnect_evaluate_queue_admission', { origin });
+  } catch {
+    return null;
+  }
+}
+
+async function getQconnectInsertAfterQueueItemId(): Promise<number | null> {
+  try {
+    const snapshot = await invoke<QconnectRendererSnapshot>('v2_qconnect_renderer_snapshot');
+    const queueItemId = snapshot.current_track?.queue_item_id;
+    return typeof queueItemId === 'number' ? queueItemId : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sendQconnectQueueCommandWithAdmission(
+  commandType: QconnectQueueCommandType,
+  origin: QconnectTrackOrigin,
+  payload: Record<string, unknown>
+): Promise<void> {
+  await invoke('v2_qconnect_send_command_with_admission', {
+    request: {
+      command_type: commandType,
+      origin,
+      payload
+    }
+  });
 }
 
 // ============ Queue Builders ============
@@ -113,6 +207,11 @@ export function buildQueueTrackFromLocalTrack(track: LocalLibraryTrack): Backend
   // Local tracks are hi-res if bit_depth > 16 or sample_rate > 44100
   const isHires = Boolean((track.bit_depth && track.bit_depth > 16) || (track.sample_rate && track.sample_rate > 44100));
   const isPlexTrack = track.source === 'plex';
+  const source = isPlexTrack
+    ? 'plex'
+    : track.source === 'qobuz_download'
+      ? 'qobuz_download'
+      : 'local';
   return {
     id: track.id,
     title: track.title,
@@ -127,28 +226,140 @@ export function buildQueueTrackFromLocalTrack(track: LocalLibraryTrack): Backend
     album_id: null,  // Local tracks don't have Qobuz album IDs
     artist_id: null,  // Local tracks don't have Qobuz artist IDs
     streamable: true,  // Local tracks are always playable
-    source: isPlexTrack ? 'plex' : 'local'
+    source
   };
 }
 
 // ============ Queue Actions ============
 
-export async function queueTrackNext(queueTrack: BackendQueueTrack, isLocal = false): Promise<void> {
+export async function queueTrackNext(
+  queueTrack: BackendQueueTrack,
+  isLocal = false,
+  options: QueueTrackActionOptions = {}
+): Promise<boolean> {
+  const silent = options.silent === true;
+  const qconnectConnected = await isQconnectConnected();
+  if (qconnectConnected) {
+    const origin = resolveQconnectTrackOrigin(queueTrack, isLocal);
+    const admission = await evaluateQconnectAdmission(origin);
+    if (!admission) {
+      if (!silent) {
+        showToast(translate('qconnect.admissionCheckFailed'), 'error');
+      }
+      return false;
+    }
+
+    if (!admission.accepted) {
+      if (!silent) {
+        showToast(translate(qconnectAdmissionReasonKey(admission.reason)), 'warning');
+      }
+      if (!silent && admission.handoff_intent === 'continue_locally') {
+        showToast(translate('qconnect.handoffContinueLocallyHint'), 'info');
+      }
+      return false;
+    }
+
+    if (queueTrack.streamable === false) {
+      if (!silent) {
+        showToast(translate('qconnect.streamNotEligible'), 'warning');
+      }
+      return false;
+    }
+
+    try {
+      const insertAfter = await getQconnectInsertAfterQueueItemId();
+      const payload: Record<string, unknown> = {
+        track_ids: [queueTrack.id],
+        autoplay_reset: false,
+        autoplay_loading: false
+      };
+      if (typeof insertAfter === 'number') {
+        payload.insert_after = insertAfter;
+      }
+
+      await sendQconnectQueueCommandWithAdmission('queue_insert_tracks', origin, payload);
+      if (!silent) {
+        showToast(translate('qconnect.remoteQueuedNext'), 'success');
+      }
+      return true;
+    } catch (err) {
+      console.error('Failed to queue track next on QConnect:', err);
+      if (!silent) {
+        showToast(translate('qconnect.remoteQueueFailed'), 'error');
+      }
+      return false;
+    }
+  }
+
   const success = await addToQueueNext(queueTrack, isLocal);
-  if (success) {
+  if (!silent && success) {
     showToast('Queued to play next', 'success');
-  } else {
+  } else if (!silent) {
     showToast('Failed to queue track', 'error');
   }
+  return success;
 }
 
-export async function queueTrackLater(queueTrack: BackendQueueTrack, isLocal = false): Promise<void> {
+export async function queueTrackLater(
+  queueTrack: BackendQueueTrack,
+  isLocal = false,
+  options: QueueTrackActionOptions = {}
+): Promise<boolean> {
+  const silent = options.silent === true;
+  const qconnectConnected = await isQconnectConnected();
+  if (qconnectConnected) {
+    const origin = resolveQconnectTrackOrigin(queueTrack, isLocal);
+    const admission = await evaluateQconnectAdmission(origin);
+    if (!admission) {
+      if (!silent) {
+        showToast(translate('qconnect.admissionCheckFailed'), 'error');
+      }
+      return false;
+    }
+
+    if (!admission.accepted) {
+      if (!silent) {
+        showToast(translate(qconnectAdmissionReasonKey(admission.reason)), 'warning');
+      }
+      if (!silent && admission.handoff_intent === 'continue_locally') {
+        showToast(translate('qconnect.handoffContinueLocallyHint'), 'info');
+      }
+      return false;
+    }
+
+    if (queueTrack.streamable === false) {
+      if (!silent) {
+        showToast(translate('qconnect.streamNotEligible'), 'warning');
+      }
+      return false;
+    }
+
+    try {
+      await sendQconnectQueueCommandWithAdmission('queue_add_tracks', origin, {
+        track_ids: [queueTrack.id],
+        autoplay_reset: false,
+        autoplay_loading: false
+      });
+      if (!silent) {
+        showToast(translate('qconnect.remoteQueuedLater'), 'success');
+      }
+      return true;
+    } catch (err) {
+      console.error('Failed to add track to QConnect queue:', err);
+      if (!silent) {
+        showToast(translate('qconnect.remoteQueueFailed'), 'error');
+      }
+      return false;
+    }
+  }
+
   const success = await addToQueue(queueTrack, isLocal);
-  if (success) {
+  if (!silent && success) {
     showToast('Added to queue', 'success');
-  } else {
+  } else if (!silent) {
     showToast('Failed to add to queue', 'error');
   }
+  return success;
 }
 
 // ============ Convenience Queue Functions ============
@@ -192,7 +403,8 @@ export function buildQueueTrackFromDisplayTrack(track: DisplayTrack): BackendQue
     sample_rate: track.samplingRate ?? null,
     is_local: track.isLocal ?? false,
     album_id: track.albumId || null,
-    artist_id: track.artistId ?? null
+    artist_id: track.artistId ?? null,
+    source: track.isLocal ? 'local' : 'qobuz'
   };
 }
 
