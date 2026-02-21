@@ -1,3 +1,4 @@
+use qconnect_core::QueueVersion;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -36,5 +37,59 @@ pub struct RendererServerCommand {
 impl RendererServerCommand {
     pub const fn message_type(&self) -> &'static str {
         self.command_type.as_message_type()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RendererReportType {
+    RndrSrvrStateUpdated,
+    RndrSrvrVolumeChanged,
+    RndrSrvrVolumeMuted,
+    RndrSrvrFileAudioQualityChanged,
+    RndrSrvrMaxAudioQualityChanged,
+}
+
+impl RendererReportType {
+    pub const fn as_message_type(self) -> &'static str {
+        match self {
+            Self::RndrSrvrStateUpdated => "MESSAGE_TYPE_RNDR_SRVR_STATE_UPDATED",
+            Self::RndrSrvrVolumeChanged => "MESSAGE_TYPE_RNDR_SRVR_VOLUME_CHANGED",
+            Self::RndrSrvrVolumeMuted => "MESSAGE_TYPE_RNDR_SRVR_VOLUME_MUTED",
+            Self::RndrSrvrFileAudioQualityChanged => {
+                "MESSAGE_TYPE_RNDR_SRVR_FILE_AUDIO_QUALITY_CHANGED"
+            }
+            Self::RndrSrvrMaxAudioQualityChanged => {
+                "MESSAGE_TYPE_RNDR_SRVR_MAX_AUDIO_QUALITY_CHANGED"
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RendererReport {
+    pub report_type: RendererReportType,
+    pub action_uuid: String,
+    pub queue_version_ref: QueueVersion,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+impl RendererReport {
+    pub fn new(
+        report_type: RendererReportType,
+        action_uuid: impl Into<String>,
+        queue_version_ref: QueueVersion,
+        payload: Value,
+    ) -> Self {
+        Self {
+            report_type,
+            action_uuid: action_uuid.into(),
+            queue_version_ref,
+            payload,
+        }
+    }
+
+    pub const fn message_type(&self) -> &'static str {
+        self.report_type.as_message_type()
     }
 }

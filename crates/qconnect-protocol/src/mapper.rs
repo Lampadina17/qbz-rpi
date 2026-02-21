@@ -11,13 +11,16 @@ use crate::{
     build_outbound_envelope,
     queue_command_proto::{
         AskForQueueStateMessage, AutoplayLoadTracksMessage, AutoplayRemoveTracksMessage,
-        ClearQueueMessage, QConnectMessage, QConnectMessageType, QConnectMessages,
-        QueueAddTracksMessage, QueueInsertTracksMessage, QueueLoadTracksMessage,
+        ClearQueueMessage, PlaybackPositionMessage, QConnectMessage, QConnectMessageType,
+        QConnectMessages, QueueAddTracksMessage, QueueInsertTracksMessage, QueueLoadTracksMessage,
         QueueRemoveTracksMessage, QueueReorderTracksMessage, QueueVersionRef,
-        SetAutoplayModeMessage, SetQueueStateMessage, SetQueueTrackWithContext,
-        SetShuffleModeMessage,
+        RendererFileAudioQualityChangedMessage, RendererMaxAudioQualityChangedMessage,
+        RendererStateMessage, RendererStateUpdatedMessage, RendererVolumeChangedMessage,
+        RendererVolumeMutedMessage, SetAutoplayModeMessage, SetQueueStateMessage,
+        SetQueueTrackWithContext, SetShuffleModeMessage,
     },
-    OutboundEnvelope, ProtocolError, QueueCommand, QueueCommandType,
+    OutboundEnvelope, ProtocolError, QueueCommand, QueueCommandType, RendererReport,
+    RendererReportType,
 };
 
 static BATCH_SEQ: AtomicI32 = AtomicI32::new(1);
@@ -33,6 +36,32 @@ pub fn build_qconnect_outbound_envelope(
 
 pub fn encode_queue_command_batch(command: &QueueCommand) -> Result<Vec<u8>, ProtocolError> {
     let message = map_queue_command(command)?;
+    let batch = QConnectMessages {
+        messages_time: Some(now_ms()),
+        messages_id: Some(next_batch_seq()),
+        messages: vec![message],
+    };
+    Ok(batch.encode_to_vec())
+}
+
+pub fn build_qconnect_renderer_outbound_envelope(
+    report: RendererReport,
+) -> Result<OutboundEnvelope, ProtocolError> {
+    let payload_bytes = encode_renderer_report_batch(&report)?;
+    let message_type = report.message_type().to_string();
+    let mut envelope = build_outbound_envelope(QueueCommand::new(
+        QueueCommandType::CtrlSrvrAskForQueueState,
+        report.action_uuid,
+        report.queue_version_ref,
+        report.payload,
+    ));
+    envelope.message_type = message_type;
+    envelope.payload_bytes = Some(payload_bytes);
+    Ok(envelope)
+}
+
+pub fn encode_renderer_report_batch(report: &RendererReport) -> Result<Vec<u8>, ProtocolError> {
+    let message = map_renderer_report(report)?;
     let batch = QConnectMessages {
         messages_time: Some(now_ms()),
         messages_id: Some(next_batch_seq()),
@@ -281,6 +310,76 @@ fn map_queue_command(command: &QueueCommand) -> Result<QConnectMessage, Protocol
     }
 }
 
+fn map_renderer_report(report: &RendererReport) -> Result<QConnectMessage, ProtocolError> {
+    match report.report_type {
+        RendererReportType::RndrSrvrStateUpdated => {
+            let queue_version = optional_queue_version(&report.payload, "queue_version")?
+                .unwrap_or(report.queue_version_ref);
+            let current_position = optional_i32(&report.payload, "current_position")?;
+            let duration = optional_i32(&report.payload, "duration")?;
+            let playback_position = current_position.map(|value| PlaybackPositionMessage {
+                timestamp: Some(now_ms()),
+                value: Some(value),
+            });
+
+            Ok(QConnectMessage {
+                message_type: Some(QConnectMessageType::MessageTypeRndrSrvrStateUpdated as i32),
+                rndr_srvr_state_updated: Some(RendererStateUpdatedMessage {
+                    state: Some(RendererStateMessage {
+                        playing_state: optional_i32(&report.payload, "playing_state")?,
+                        buffer_state: optional_i32(&report.payload, "buffer_state")?,
+                        current_position: playback_position,
+                        duration,
+                        queue_version: Some(to_proto_queue_version(queue_version)?),
+                        current_queue_item_id: optional_i32(
+                            &report.payload,
+                            "current_queue_item_id",
+                        )?,
+                        next_queue_item_id: optional_i32(&report.payload, "next_queue_item_id")?,
+                    }),
+                }),
+                ..Default::default()
+            })
+        }
+        RendererReportType::RndrSrvrVolumeChanged => Ok(QConnectMessage {
+            message_type: Some(QConnectMessageType::MessageTypeRndrSrvrVolumeChanged as i32),
+            rndr_srvr_volume_changed: Some(RendererVolumeChangedMessage {
+                volume: optional_i32(&report.payload, "volume")?,
+            }),
+            ..Default::default()
+        }),
+        RendererReportType::RndrSrvrVolumeMuted => Ok(QConnectMessage {
+            message_type: Some(QConnectMessageType::MessageTypeRndrSrvrVolumeMuted as i32),
+            rndr_srvr_volume_muted: Some(RendererVolumeMutedMessage {
+                value: Some(optional_bool(&report.payload, "value", false)),
+            }),
+            ..Default::default()
+        }),
+        RendererReportType::RndrSrvrFileAudioQualityChanged => Ok(QConnectMessage {
+            message_type: Some(
+                QConnectMessageType::MessageTypeRndrSrvrFileAudioQualityChanged as i32,
+            ),
+            rndr_srvr_file_audio_quality_changed: Some(RendererFileAudioQualityChangedMessage {
+                sampling_rate: optional_i32(&report.payload, "sampling_rate")?,
+                bit_depth: optional_i32(&report.payload, "bit_depth")?,
+                nb_channels: optional_i32(&report.payload, "nb_channels")?,
+                audio_quality: optional_i32(&report.payload, "audio_quality")?,
+            }),
+            ..Default::default()
+        }),
+        RendererReportType::RndrSrvrMaxAudioQualityChanged => Ok(QConnectMessage {
+            message_type: Some(
+                QConnectMessageType::MessageTypeRndrSrvrMaxAudioQualityChanged as i32,
+            ),
+            rndr_srvr_max_audio_quality_changed: Some(RendererMaxAudioQualityChangedMessage {
+                max_audio_quality: optional_i32(&report.payload, "max_audio_quality")?,
+                network_type: optional_i32(&report.payload, "network_type")?,
+            }),
+            ..Default::default()
+        }),
+    }
+}
+
 fn to_proto_queue_version(
     version: qconnect_core::QueueVersion,
 ) -> Result<QueueVersionRef, ProtocolError> {
@@ -397,9 +496,28 @@ fn required_tracks_with_context(
         .collect()
 }
 
+fn optional_queue_version(
+    payload: &Value,
+    key: &str,
+) -> Result<Option<qconnect_core::QueueVersion>, ProtocolError> {
+    let Some(version) = payload.get(key) else {
+        return Ok(None);
+    };
+
+    let Some(major) = version.get("major").and_then(Value::as_u64) else {
+        return Ok(None);
+    };
+    let Some(minor) = version.get("minor").and_then(Value::as_u64) else {
+        return Ok(None);
+    };
+
+    Ok(Some(qconnect_core::QueueVersion { major, minor }))
+}
+
 fn optional_i32(payload: &Value, key: &str) -> Result<Option<i32>, ProtocolError> {
     match payload.get(key) {
         None => Ok(None),
+        Some(value) if value.is_null() => Ok(None),
         Some(value) => {
             let raw = value
                 .as_i64()
@@ -448,7 +566,9 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::QueueCommand;
+    use crate::queue_command_proto::{QConnectMessageType, QConnectMessages};
+    use crate::{QueueCommand, RendererReport, RendererReportType};
+    use prost::Message;
     use qconnect_core::QueueVersion;
     use serde_json::json;
 
@@ -493,5 +613,65 @@ mod tests {
 
         let payload = encode_queue_command_batch(&command).expect("batch payload");
         assert!(!payload.is_empty());
+    }
+
+    #[test]
+    fn encodes_renderer_state_updated_report_with_queue_version() {
+        let report = RendererReport::new(
+            RendererReportType::RndrSrvrStateUpdated,
+            "6d8ef3af-b863-4581-9b72-17bd32792c6d",
+            QueueVersion::new(9, 4),
+            json!({
+                "playing_state": 2,
+                "buffer_state": 2,
+                "current_position": 42123,
+                "duration": 185000,
+                "current_queue_item_id": 9002,
+                "next_queue_item_id": 9003
+            }),
+        );
+
+        let payload = encode_renderer_report_batch(&report).expect("renderer report batch");
+        let decoded = QConnectMessages::decode(payload.as_slice()).expect("decode batch");
+        assert_eq!(decoded.messages.len(), 1);
+        let message = &decoded.messages[0];
+        assert_eq!(
+            message.message_type,
+            Some(QConnectMessageType::MessageTypeRndrSrvrStateUpdated as i32)
+        );
+
+        let state = message
+            .rndr_srvr_state_updated
+            .as_ref()
+            .and_then(|payload| payload.state.as_ref())
+            .expect("state payload");
+        assert_eq!(state.playing_state, Some(2));
+        assert_eq!(state.buffer_state, Some(2));
+        assert_eq!(
+            state.current_position.as_ref().and_then(|pos| pos.value),
+            Some(42_123)
+        );
+        assert_eq!(state.queue_version.as_ref().and_then(|v| v.major), Some(9));
+        assert_eq!(state.queue_version.as_ref().and_then(|v| v.minor), Some(4));
+        assert_eq!(state.current_queue_item_id, Some(9002));
+        assert_eq!(state.next_queue_item_id, Some(9003));
+    }
+
+    #[test]
+    fn build_renderer_outbound_envelope_uses_renderer_message_type() {
+        let report = RendererReport::new(
+            RendererReportType::RndrSrvrVolumeChanged,
+            "0f892e1a-a2f4-4d18-82c6-31e8daf2ea0f",
+            QueueVersion::new(5, 6),
+            json!({"volume": 58}),
+        );
+
+        let envelope =
+            build_qconnect_renderer_outbound_envelope(report).expect("renderer envelope");
+        assert_eq!(
+            envelope.message_type,
+            "MESSAGE_TYPE_RNDR_SRVR_VOLUME_CHANGED"
+        );
+        assert!(envelope.payload_bytes.is_some());
     }
 }
