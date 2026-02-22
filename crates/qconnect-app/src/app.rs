@@ -415,40 +415,49 @@ where
         queue_version_ref: qconnect_core::QueueVersion,
     ) -> Result<(), QconnectAppError> {
         match command {
-            RendererCommand::SetState { .. } => {
-                log::info!(
-                    "[QConnect/Report] SetState report: playing={:?} pos={:?} track={:?} next={:?} qv={}.{}",
-                    renderer.playing_state,
-                    renderer.current_position_ms,
-                    renderer.current_track.as_ref().map(|t| (t.track_id, t.queue_item_id)),
-                    renderer.next_track.as_ref().map(|t| (t.track_id, t.queue_item_id)),
-                    queue_version_ref.major,
-                    queue_version_ref.minor
-                );
-                let report = RendererReport::new(
-                    RendererReportType::RndrSrvrStateUpdated,
-                    self.next_action_uuid(),
-                    queue_version_ref,
-                    // NOTE: We intentionally OMIT current_queue_item_id and next_queue_item_id.
-                    // The server validates these IDs against its queue state and rejects reports
-                    // when IDs don't match ("Current track not found in queue nor autoplay").
-                    // This happens after QBZ-initiated queue loads where the server assigns
-                    // non-standard queue_item_ids (first track = track_id, rest = 1..N).
-                    // The server already knows the current track from SET_STATE commands.
-                    serde_json::json!({
-                        "playing_state": renderer.playing_state,
-                        "buffer_state": infer_buffer_state(renderer.playing_state),
-                        "current_position": renderer.current_position_ms,
-                        "duration": Option::<u64>::None,
-                        "queue_version": {
-                            "major": queue_version_ref.major,
-                            "minor": queue_version_ref.minor
-                        },
-                        "current_queue_item_id": Option::<i32>::None,
-                        "next_queue_item_id": Option::<i32>::None
-                    }),
-                );
-                self.send_renderer_report(report).await?;
+            RendererCommand::SetState {
+                playing_state,
+                current_track,
+                ..
+            } => {
+                // Only send a state report when the SET_STATE carries a meaningful
+                // change (playing_state or current_track). The server echoes every
+                // state report as a SET_STATE with only next_track updated, which
+                // would create an infinite feedback loop if we replied to it.
+                let is_substantive = playing_state.is_some() || current_track.is_some();
+                if is_substantive {
+                    log::info!(
+                        "[QConnect/Report] SetState report: playing={:?} pos={:?} track={:?} next={:?} qv={}.{}",
+                        renderer.playing_state,
+                        renderer.current_position_ms,
+                        renderer.current_track.as_ref().map(|t| (t.track_id, t.queue_item_id)),
+                        renderer.next_track.as_ref().map(|t| (t.track_id, t.queue_item_id)),
+                        queue_version_ref.major,
+                        queue_version_ref.minor
+                    );
+                    let report = RendererReport::new(
+                        RendererReportType::RndrSrvrStateUpdated,
+                        self.next_action_uuid(),
+                        queue_version_ref,
+                        serde_json::json!({
+                            "playing_state": renderer.playing_state,
+                            "buffer_state": infer_buffer_state(renderer.playing_state),
+                            "current_position": renderer.current_position_ms,
+                            "duration": Option::<u64>::None,
+                            "queue_version": {
+                                "major": queue_version_ref.major,
+                                "minor": queue_version_ref.minor
+                            },
+                            "current_queue_item_id": Option::<i32>::None,
+                            "next_queue_item_id": Option::<i32>::None
+                        }),
+                    );
+                    self.send_renderer_report(report).await?;
+                } else {
+                    log::debug!(
+                        "[QConnect/Report] Skipping echo SET_STATE report (no playing_state or current_track change)"
+                    );
+                }
             }
             RendererCommand::SetVolume { volume, .. } => {
                 let resolved_volume = renderer.volume.or(*volume);

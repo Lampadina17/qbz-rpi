@@ -432,7 +432,7 @@ fn map_renderer_report(report: &RendererReport) -> Result<QConnectMessage, Proto
                 value: Some(value),
             });
 
-            log::info!(
+            log::debug!(
                 "[QConnect/Proto] Encoding StateUpdated: playing={:?} pos={:?} dur={:?} qid={:?} next_qid={:?} qv={}.{}",
                 playing_state, current_position, duration,
                 current_qid, next_qid,

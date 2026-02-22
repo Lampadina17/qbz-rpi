@@ -1735,7 +1735,7 @@ pub async fn v2_qconnect_report_playback_state(
 
     let queue_version = service.get_queue_version().await;
 
-    log::info!(
+    log::debug!(
         "[QConnect/Report] Periodic state report: playing={} pos={:?} dur={:?} qid={:?} next_qid={:?} track_id={:?} qv={}.{}",
         playing_state, current_position, duration,
         resolved_current_qid, resolved_next_qid, current_track_id,
