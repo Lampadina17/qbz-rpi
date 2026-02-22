@@ -3419,6 +3419,12 @@
 
     // Set up track ended callback for auto-advance
     setOnTrackEnded(async () => {
+      // When QConnect controls playback, the server/controller manages track advancement.
+      // The frontend must NOT auto-advance or it will fight the remote controller.
+      if (isQobuzConnectConnected) {
+        console.log('[Player] Auto-advance suppressed: QConnect is controlling playback');
+        return;
+      }
       if (!isAutoplayEnabled()) {
         setQueueEnded(true);
         await stopPlayback();
@@ -3457,6 +3463,7 @@
 
     // Set up resume-from-stop callback: re-play the queue's current track
     setOnResumeFromStop(async () => {
+      if (isQobuzConnectConnected) return;
       const queueState = await getBackendQueueState();
       if (!queueState) return;
       const tryQueueIndices = async (indices: number[]): Promise<BackendQueueTrack | null> => {
@@ -3520,6 +3527,8 @@
 
     // Gapless: provide callback to get next track ID for pre-queuing
     setGaplessGetNextTrackId(() => {
+      // Disable gapless pre-queuing during QConnect: the server controls track transitions.
+      if (isQobuzConnectConnected) return null;
       try {
         const queueState = getQueueState();
         if (queueState.queue.length > 0) {
@@ -3545,6 +3554,7 @@
 
     // Gapless: handle transition when backend switches to pre-queued track
     setOnGaplessTransition(async (trackId: number) => {
+      if (isQobuzConnectConnected) return;
       console.log('[Gapless] Handling transition to track', trackId);
       // Advance the queue to match backend state
       const advanced = await nextTrack();
