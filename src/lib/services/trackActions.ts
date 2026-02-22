@@ -415,8 +415,12 @@ export async function loadQconnectQueue(
   startIndex: number = 0,
   shuffleMode: boolean = false
 ): Promise<boolean> {
+  console.log('[QConnect/LoadQueue] called: trackCount=%d startIndex=%d', trackIds.length, startIndex);
   const qconnectConnected = await isQconnectConnected();
-  if (!qconnectConnected) return false;
+  if (!qconnectConnected) {
+    console.warn('[QConnect/LoadQueue] skipped: transport not connected');
+    return false;
+  }
 
   const origin: QconnectTrackOrigin = 'qobuz_online';
   const admission = await evaluateQconnectAdmission(origin);

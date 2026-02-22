@@ -786,6 +786,46 @@ impl QconnectServiceState {
             (None, None)
         }
     }
+
+    /// Look up queue_item_id by track_id from the QConnect queue state.
+    /// Searches queue_items first, then autoplay_items.
+    /// Also updates sync_state so future lookups are fast.
+    async fn lookup_queue_item_id_by_track_id(&self, track_id: u64) -> Option<u64> {
+        let (app, sync_state) = {
+            let guard = self.inner.lock().await;
+            let runtime = guard.runtime.as_ref()?;
+            (Arc::clone(&runtime.app), Arc::clone(&runtime.sync_state))
+        };
+
+        let queue = app.queue_state_snapshot().await;
+        let found = queue
+            .queue_items
+            .iter()
+            .chain(queue.autoplay_items.iter())
+            .find(|item| item.track_id == track_id);
+
+        if let Some(item) = found {
+            let qid = item.queue_item_id;
+            // Cache in sync_state for future reports
+            let mut state = sync_state.lock().await;
+            state.last_renderer_queue_item_id = Some(qid);
+            state.last_renderer_track_id = Some(track_id);
+            log::debug!(
+                "[QConnect] Resolved queue_item_id={} for track_id={} from queue state",
+                qid,
+                track_id
+            );
+            Some(qid)
+        } else {
+            log::debug!(
+                "[QConnect] Could not find track_id={} in queue state ({} queue_items, {} autoplay_items)",
+                track_id,
+                queue.queue_items.len(),
+                queue.autoplay_items.len()
+            );
+            None
+        }
+    }
 }
 
 impl Default for QconnectServiceState {
@@ -1637,6 +1677,8 @@ pub async fn v2_qconnect_session_snapshot(
 /// Report current playback state to QConnect server.
 /// Called by frontend on state transitions (play/pause, track change) and periodic position updates.
 /// Auto-fills queue_item_ids from renderer state when the frontend passes null.
+/// If renderer state has no queue_item_id, falls back to looking up by current_track_id
+/// in the QConnect queue state.
 /// Fire-and-forget: errors are logged but do not block playback.
 #[tauri::command]
 pub async fn v2_qconnect_report_playback_state(
@@ -1645,6 +1687,7 @@ pub async fn v2_qconnect_report_playback_state(
     duration: Option<i32>,
     current_queue_item_id: Option<i32>,
     next_queue_item_id: Option<i32>,
+    current_track_id: Option<i64>,
     service: State<'_, QconnectServiceState>,
 ) -> Result<(), RuntimeError> {
     if !service.is_active().await {
@@ -1654,7 +1697,7 @@ pub async fn v2_qconnect_report_playback_state(
     // Auto-fill queue_item_ids from renderer state if not provided by frontend.
     // The frontend doesn't know about QConnect queue_item_ids, but the renderer
     // state tracks them from server SET_STATE commands.
-    let (resolved_current_qid, resolved_next_qid) = if current_queue_item_id.is_some() {
+    let (mut resolved_current_qid, resolved_next_qid) = if current_queue_item_id.is_some() {
         (current_queue_item_id, next_queue_item_id)
     } else {
         let (renderer_current, renderer_next) = service.get_renderer_queue_item_ids().await;
@@ -1663,6 +1706,21 @@ pub async fn v2_qconnect_report_playback_state(
             renderer_next.and_then(|id| i32::try_from(id).ok()),
         )
     };
+
+    // If we still don't have a current_queue_item_id but the frontend sent
+    // a track_id, try to resolve it from the QConnect queue state.
+    if resolved_current_qid.is_none() {
+        if let Some(track_id) = current_track_id {
+            if track_id > 0 {
+                if let Some(qid) = service
+                    .lookup_queue_item_id_by_track_id(track_id as u64)
+                    .await
+                {
+                    resolved_current_qid = i32::try_from(qid).ok();
+                }
+            }
+        }
+    }
 
     let queue_version = service.get_queue_version().await;
     let report = RendererReport::new(

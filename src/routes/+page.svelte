@@ -1260,7 +1260,10 @@
 
     // Sync the full queue to QConnect remote so controllers see the album
     const trackIds = album.tracks.map(trk => trk.id);
-    void loadQconnectQueue(trackIds, 0);
+    loadQconnectQueue(trackIds, 0).then(ok => {
+      if (ok) console.log('[QConnect] Album queue synced to remote (%d tracks)', trackIds.length);
+      else console.warn('[QConnect] Album queue NOT synced to remote (not connected or rejected)');
+    }).catch(err => console.error('[QConnect] Album queue sync error:', err));
 
     const firstTrack = album.tracks[0];
     const quality = firstTrack.hires && firstTrack.bitDepth && firstTrack.samplingRate
@@ -1480,7 +1483,10 @@
 
     // Sync the full queue to QConnect remote so controllers see the playlist
     const trackIds = tracks.map(trk => trk.id);
-    void loadQconnectQueue(trackIds, 0);
+    loadQconnectQueue(trackIds, 0).then(ok => {
+      if (ok) console.log('[QConnect] Playlist queue synced to remote (%d tracks)', trackIds.length);
+      else console.warn('[QConnect] Playlist queue NOT synced to remote (not connected or rejected)');
+    }).catch(err => console.error('[QConnect] Playlist queue sync error:', err));
 
     const firstTrack = tracks[0];
     const artwork = firstTrack.album?.image?.large || firstTrack.album?.image?.thumbnail || firstTrack.album?.image?.small || '';
@@ -3198,6 +3204,7 @@
           duration: durationMs,
           currentQueueItemId: null,
           nextQueueItemId: null,
+          currentTrackId: currentTrack?.id ?? null,
         }).catch(() => {});
       }
     }, 2000);
@@ -3402,6 +3409,7 @@
             duration: durationMs,
             currentQueueItemId: null,
             nextQueueItemId: null,
+            currentTrackId: currentTrack?.id ?? null,
           }).catch(() => {});
         }
       }
@@ -3728,10 +3736,29 @@
         pushQobuzConnectDiagnostic('qconnect:event', 'info', event.payload);
         void refreshQobuzConnectRuntimeState();
 
-        // Sync QBZ local queue when QConnect remote queue changes or
-        // renderer commands move the current track (next/prev from controllers).
         const payload = event.payload as Record<string, unknown> | null;
         if (payload) {
+          // When QConnect connects while QBZ is already playing, push the current
+          // queue to the server so controllers immediately see the right tracks.
+          if ('TransportConnected' in payload) {
+            console.log('[QConnect] TransportConnected detected, checking if local queue should be pushed');
+            if (isPlaying && currentTrack) {
+              const queueState = getQueueState();
+              const trackIds = queueState.queue
+                .map(item => item.trackId)
+                .filter((id): id is number => typeof id === 'number' && id > 0);
+              if (trackIds.length > 0) {
+                console.log('[QConnect] Pushing local queue to remote on connect (%d tracks)', trackIds.length);
+                loadQconnectQueue(trackIds, 0).then(ok => {
+                  if (ok) console.log('[QConnect] Local queue pushed to remote on connect');
+                  else console.warn('[QConnect] Local queue NOT pushed on connect (rejected or failed)');
+                }).catch(err => console.error('[QConnect] Local queue push on connect error:', err));
+              }
+            }
+          }
+
+          // Sync QBZ local queue when QConnect remote queue changes or
+          // renderer commands move the current track (next/prev from controllers).
           const needsQueueSync =
             'QueueUpdated' in payload ||
             'RendererCommandApplied' in payload ||
