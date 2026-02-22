@@ -3173,13 +3173,13 @@
     // Only fires when connected and playing. queue_item_ids auto-filled by backend.
     const qconnectPositionReportInterval = setInterval(() => {
       if (isQobuzConnectConnected && isPlaying && currentTrack) {
-        // QConnect protocol uses SECONDS for position/duration (not milliseconds).
-        const positionSec = Math.round(currentTime || 0);
-        const durationSec = Math.round(duration || 0);
+        // QConnect protocol uses milliseconds for position/duration.
+        const positionMs = Math.round((currentTime || 0) * 1000);
+        const durationMs = Math.round((duration || 0) * 1000);
         invoke('v2_qconnect_report_playback_state', {
           playingState: 2,
-          currentPosition: positionSec,
-          duration: durationSec,
+          currentPosition: positionMs,
+          duration: durationMs,
           currentQueueItemId: null,
           nextQueueItemId: null,
         }).catch(() => {});
@@ -3372,18 +3372,18 @@
       }
 
       // QConnect renderer state relay: report state transitions to server.
-      // QConnect protocol uses SECONDS for position/duration (not milliseconds).
+      // QConnect protocol uses milliseconds for position/duration.
       // queue_item_ids are auto-filled by the backend from renderer state.
       if (isQobuzConnectConnected) {
         const playingState = isPlaying ? 2 : (currentTrack ? 3 : 1);
-        const positionSec = Math.round(currentTime || 0);
-        const durationSec = Math.round(playerState.duration || 0);
+        const positionMs = Math.round((currentTime || 0) * 1000);
+        const durationMs = Math.round((playerState.duration || 0) * 1000);
         // Report immediately on play/pause change or track change
         if (wasPlaying !== isPlaying || trackChanged) {
           invoke('v2_qconnect_report_playback_state', {
             playingState: playingState,
-            currentPosition: positionSec,
-            duration: durationSec,
+            currentPosition: positionMs,
+            duration: durationMs,
             currentQueueItemId: null,
             nextQueueItemId: null,
           }).catch(() => {});
