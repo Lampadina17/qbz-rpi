@@ -80,7 +80,8 @@ async function isQconnectConnected(): Promise<boolean> {
   try {
     const status = await invoke<QconnectStatus>('v2_qconnect_status');
     return Boolean(status.transport_connected);
-  } catch {
+  } catch (err) {
+    console.warn('[QConnect] isQconnectConnected failed:', err);
     return false;
   }
 }
@@ -88,7 +89,8 @@ async function isQconnectConnected(): Promise<boolean> {
 async function evaluateQconnectAdmission(origin: QconnectTrackOrigin): Promise<QconnectAdmissionResult | null> {
   try {
     return await invoke<QconnectAdmissionResult>('v2_qconnect_evaluate_queue_admission', { origin });
-  } catch {
+  } catch (err) {
+    console.error('[QConnect] evaluateQconnectAdmission failed:', err);
     return null;
   }
 }
@@ -239,10 +241,14 @@ export async function queueTrackNext(
 ): Promise<boolean> {
   const silent = options.silent === true;
   const qconnectConnected = await isQconnectConnected();
+  console.log('[QConnect/PlayNext] connected=%s track=%d source=%s isLocal=%s', qconnectConnected, queueTrack.id, queueTrack.source, isLocal);
   if (qconnectConnected) {
     const origin = resolveQconnectTrackOrigin(queueTrack, isLocal);
+    console.log('[QConnect/PlayNext] origin=%s', origin);
     const admission = await evaluateQconnectAdmission(origin);
+    console.log('[QConnect/PlayNext] admission=%o', admission);
     if (!admission) {
+      console.warn('[QConnect/PlayNext] admission returned null (invoke failed)');
       if (!silent) {
         showToast(translate('qconnect.admissionCheckFailed'), 'error');
       }
@@ -250,6 +256,7 @@ export async function queueTrackNext(
     }
 
     if (!admission.accepted) {
+      console.warn('[QConnect/PlayNext] admission REJECTED: reason=%s handoff=%s', admission.reason, admission.handoff_intent);
       if (!silent) {
         showToast(translate(qconnectAdmissionReasonKey(admission.reason)), 'warning');
       }
@@ -260,6 +267,7 @@ export async function queueTrackNext(
     }
 
     if (queueTrack.streamable === false) {
+      console.warn('[QConnect/PlayNext] track not streamable');
       if (!silent) {
         showToast(translate('qconnect.streamNotEligible'), 'warning');
       }
@@ -268,6 +276,7 @@ export async function queueTrackNext(
 
     try {
       const insertAfter = await getQconnectInsertAfterQueueItemId();
+      console.log('[QConnect/PlayNext] insertAfter=%s', insertAfter);
       const payload: Record<string, unknown> = {
         track_ids: [queueTrack.id],
         context_uuid: crypto.randomUUID(),
@@ -278,13 +287,15 @@ export async function queueTrackNext(
         payload.insert_after = insertAfter;
       }
 
+      console.log('[QConnect/PlayNext] sending queue_insert_tracks payload=%o', payload);
       await sendQconnectQueueCommandWithAdmission('queue_insert_tracks', origin, payload);
+      console.log('[QConnect/PlayNext] queue_insert_tracks SUCCESS');
       if (!silent) {
         showToast(translate('qconnect.remoteQueuedNext'), 'success');
       }
       return true;
     } catch (err) {
-      console.error('Failed to queue track next on QConnect:', err);
+      console.error('[QConnect/PlayNext] FAILED:', err);
       if (!silent) {
         showToast(translate('qconnect.remoteQueueFailed'), 'error');
       }
@@ -308,10 +319,14 @@ export async function queueTrackLater(
 ): Promise<boolean> {
   const silent = options.silent === true;
   const qconnectConnected = await isQconnectConnected();
+  console.log('[QConnect/AddToQueue] connected=%s track=%d source=%s isLocal=%s', qconnectConnected, queueTrack.id, queueTrack.source, isLocal);
   if (qconnectConnected) {
     const origin = resolveQconnectTrackOrigin(queueTrack, isLocal);
+    console.log('[QConnect/AddToQueue] origin=%s', origin);
     const admission = await evaluateQconnectAdmission(origin);
+    console.log('[QConnect/AddToQueue] admission=%o', admission);
     if (!admission) {
+      console.warn('[QConnect/AddToQueue] admission returned null (invoke failed)');
       if (!silent) {
         showToast(translate('qconnect.admissionCheckFailed'), 'error');
       }
@@ -319,6 +334,7 @@ export async function queueTrackLater(
     }
 
     if (!admission.accepted) {
+      console.warn('[QConnect/AddToQueue] admission REJECTED: reason=%s', admission.reason);
       if (!silent) {
         showToast(translate(qconnectAdmissionReasonKey(admission.reason)), 'warning');
       }
@@ -329,6 +345,7 @@ export async function queueTrackLater(
     }
 
     if (queueTrack.streamable === false) {
+      console.warn('[QConnect/AddToQueue] track not streamable');
       if (!silent) {
         showToast(translate('qconnect.streamNotEligible'), 'warning');
       }
@@ -336,18 +353,21 @@ export async function queueTrackLater(
     }
 
     try {
-      await sendQconnectQueueCommandWithAdmission('queue_add_tracks', origin, {
+      const payload = {
         track_ids: [queueTrack.id],
         context_uuid: crypto.randomUUID(),
         autoplay_reset: false,
         autoplay_loading: false
-      });
+      };
+      console.log('[QConnect/AddToQueue] sending queue_add_tracks payload=%o', payload);
+      await sendQconnectQueueCommandWithAdmission('queue_add_tracks', origin, payload);
+      console.log('[QConnect/AddToQueue] queue_add_tracks SUCCESS');
       if (!silent) {
         showToast(translate('qconnect.remoteQueuedLater'), 'success');
       }
       return true;
     } catch (err) {
-      console.error('Failed to add track to QConnect queue:', err);
+      console.error('[QConnect/AddToQueue] FAILED:', err);
       if (!silent) {
         showToast(translate('qconnect.remoteQueueFailed'), 'error');
       }

@@ -3711,6 +3711,19 @@
       const unlisten6 = await listen('qconnect:event', (event) => {
         pushQobuzConnectDiagnostic('qconnect:event', 'info', event.payload);
         void refreshQobuzConnectRuntimeState();
+
+        // Sync QBZ local queue when QConnect remote queue changes or
+        // renderer commands move the current track (next/prev from controllers).
+        const payload = event.payload as Record<string, unknown> | null;
+        if (payload) {
+          const needsQueueSync =
+            'QueueUpdated' in payload ||
+            'RendererCommandApplied' in payload ||
+            'PendingActionCompleted' in payload;
+          if (needsQueueSync) {
+            syncQueueState();
+          }
+        }
       });
       if (disposed) { unlisten6(); return; }
       unlistenQconnectEvent = unlisten6;

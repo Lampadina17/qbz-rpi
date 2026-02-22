@@ -896,8 +896,22 @@ async fn materialize_remote_queue_to_corebridge(
     };
 
     if should_skip {
+        log::debug!(
+            "[QConnect] materialize_remote_queue: skipped (same version {}.{})",
+            queue_state.version.major,
+            queue_state.version.minor
+        );
         return Ok(());
     }
+
+    log::info!(
+        "[QConnect] materialize_remote_queue: version={}.{} items={} renderer_qid={:?} renderer_tid={:?}",
+        queue_state.version.major,
+        queue_state.version.minor,
+        queue_state.queue_items.len(),
+        renderer_queue_item_id,
+        renderer_track_id
+    );
 
     let bridge_guard = core_bridge.read().await;
     let Some(bridge) = bridge_guard.as_ref() else {
@@ -958,6 +972,11 @@ async fn materialize_remote_queue_to_corebridge(
         let (_, current_idx) = bridge.get_all_queue_tracks().await;
         start_index = current_idx;
     }
+    log::info!(
+        "[QConnect] materialize_remote_queue: setting queue with {} tracks, start_index={:?}",
+        queue_tracks.len(),
+        start_index
+    );
     bridge.set_queue(queue_tracks, start_index).await;
     bridge.set_shuffle(queue_state.shuffle_mode).await;
 
@@ -1004,13 +1023,25 @@ fn resolve_remote_start_index(
 
 async fn align_corebridge_queue_cursor(bridge: &CoreBridge, track_id: u64) -> Result<(), String> {
     let (tracks, current_index) = bridge.get_all_queue_tracks().await;
+    log::info!(
+        "[QConnect] align_corebridge_queue_cursor: track_id={track_id} queue_len={} current_index={:?}",
+        tracks.len(),
+        current_index
+    );
     if let Some(target_index) = tracks.iter().position(|track| track.id == track_id) {
         if current_index != Some(target_index) {
+            log::info!(
+                "[QConnect] align_corebridge_queue_cursor: moving cursor from {:?} to {target_index}",
+                current_index
+            );
             let _ = bridge.play_index(target_index).await;
         }
         return Ok(());
     }
 
+    log::info!(
+        "[QConnect] align_corebridge_queue_cursor: track {track_id} not in queue, fetching and creating single-track queue"
+    );
     let track = bridge
         .get_track(track_id)
         .await
@@ -1366,9 +1397,16 @@ pub async fn v2_qconnect_send_command(
 pub async fn v2_qconnect_evaluate_queue_admission(
     origin: QconnectTrackOrigin,
 ) -> Result<QconnectAdmissionResult, RuntimeError> {
+    log::info!("[QConnect] evaluate_queue_admission: origin={origin:?}");
     let core_origin = origin.into_core_origin();
     let decision = evaluate_remote_queue_admission(core_origin);
     let handoff_intent = resolve_handoff_intent(core_origin);
+
+    log::info!(
+        "[QConnect] evaluate_queue_admission: accepted={} reason={}",
+        decision.accepted,
+        decision.reason
+    );
 
     Ok(QconnectAdmissionResult {
         accepted: decision.accepted,
@@ -1384,10 +1422,20 @@ pub async fn v2_qconnect_send_command_with_admission(
     service: State<'_, QconnectServiceState>,
     app_handle: AppHandle,
 ) -> Result<String, RuntimeError> {
+    log::info!(
+        "[QConnect] send_command_with_admission: type={:?} origin={:?}",
+        request.command_type,
+        request.origin
+    );
+
     if request.command_type.requires_remote_queue_admission() {
         let core_origin = request.origin.into_core_origin();
         let decision = evaluate_remote_queue_admission(core_origin);
         if !decision.accepted {
+            log::warn!(
+                "[QConnect] send_command_with_admission: BLOCKED reason={}",
+                decision.reason
+            );
             let blocked_event = QconnectAdmissionBlockedEvent {
                 command_type: request.command_type,
                 origin: request.origin,
@@ -1406,15 +1454,25 @@ pub async fn v2_qconnect_send_command_with_admission(
                 decision.reason
             )));
         }
+        log::info!("[QConnect] send_command_with_admission: admission ACCEPTED");
     }
 
-    service
+    match service
         .send_command(
             request.command_type.to_queue_command_type(),
             request.payload,
         )
         .await
-        .map_err(RuntimeError::Internal)
+    {
+        Ok(uuid) => {
+            log::info!("[QConnect] send_command_with_admission: sent uuid={uuid}");
+            Ok(uuid)
+        }
+        Err(err) => {
+            log::error!("[QConnect] send_command_with_admission: FAILED err={err}");
+            Err(RuntimeError::Internal(err))
+        }
+    }
 }
 
 #[tauri::command]
