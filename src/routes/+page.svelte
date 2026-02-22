@@ -3173,12 +3173,13 @@
     // Only fires when connected and playing. queue_item_ids auto-filled by backend.
     const qconnectPositionReportInterval = setInterval(() => {
       if (isQobuzConnectConnected && isPlaying && currentTrack) {
-        const positionMs = Math.round((currentTime || 0) * 1000);
-        const durationMs = Math.round((duration || 0) * 1000);
+        // QConnect protocol uses SECONDS for position/duration (not milliseconds).
+        const positionSec = Math.round(currentTime || 0);
+        const durationSec = Math.round(duration || 0);
         invoke('v2_qconnect_report_playback_state', {
           playingState: 2,
-          currentPosition: positionMs,
-          duration: durationMs,
+          currentPosition: positionSec,
+          duration: durationSec,
           currentQueueItemId: null,
           nextQueueItemId: null,
         }).catch(() => {});
@@ -3371,17 +3372,18 @@
       }
 
       // QConnect renderer state relay: report state transitions to server.
+      // QConnect protocol uses SECONDS for position/duration (not milliseconds).
       // queue_item_ids are auto-filled by the backend from renderer state.
       if (isQobuzConnectConnected) {
         const playingState = isPlaying ? 2 : (currentTrack ? 3 : 1);
-        const positionMs = Math.round((currentTime || 0) * 1000);
-        const durationMs = Math.round((playerState.duration || 0) * 1000);
+        const positionSec = Math.round(currentTime || 0);
+        const durationSec = Math.round(playerState.duration || 0);
         // Report immediately on play/pause change or track change
         if (wasPlaying !== isPlaying || trackChanged) {
           invoke('v2_qconnect_report_playback_state', {
             playingState: playingState,
-            currentPosition: positionMs,
-            duration: durationMs,
+            currentPosition: positionSec,
+            duration: durationSec,
             currentQueueItemId: null,
             nextQueueItemId: null,
           }).catch(() => {});
