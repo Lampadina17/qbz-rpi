@@ -805,9 +805,16 @@ async fn materialize_remote_queue_to_corebridge(
         return Err("remote queue materialization produced zero playable tracks".to_string());
     }
 
-    let start_index =
-        resolve_remote_start_index(queue_state, renderer_queue_item_id, renderer_track_id)
-            .or(Some(0));
+    // Resolve start index from renderer state if known; otherwise preserve
+    // the current cursor position in CoreBridge (avoid resetting to 0 on
+    // every incremental queue update — that was causing the auto-scroll bug).
+    let mut start_index =
+        resolve_remote_start_index(queue_state, renderer_queue_item_id, renderer_track_id);
+    if start_index.is_none() {
+        // Preserve current cursor position when no renderer track is known.
+        let (_, current_idx) = bridge.get_all_queue_tracks().await;
+        start_index = current_idx;
+    }
     bridge.set_queue(queue_tracks, start_index).await;
     bridge.set_shuffle(queue_state.shuffle_mode).await;
 
