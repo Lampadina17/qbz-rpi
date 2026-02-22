@@ -280,6 +280,7 @@ struct QconnectRuntime {
     app: Arc<QconnectApp<NativeWsTransport, TauriQconnectEventSink>>,
     config: WsTransportConfig,
     event_loop: JoinHandle<()>,
+    sync_state: Arc<Mutex<QconnectRemoteSyncState>>,
 }
 
 #[derive(Default)]
@@ -300,6 +301,24 @@ struct QconnectRemoteSyncState {
     last_renderer_queue_item_id: Option<u64>,
     last_renderer_track_id: Option<u64>,
     last_applied_queue_version: Option<(u64, u64)>,
+    /// Session topology — stored from session management events (types 81-87).
+    session: QconnectSessionState,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QconnectSessionState {
+    pub session_uuid: Option<String>,
+    pub active_renderer_id: Option<i32>,
+    pub renderers: Vec<QconnectRendererInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QconnectRendererInfo {
+    pub renderer_id: i32,
+    pub friendly_name: Option<String>,
+    pub brand: Option<String>,
+    pub model: Option<String>,
+    pub device_type: Option<i32>,
 }
 
 #[async_trait]
@@ -315,6 +334,8 @@ impl QconnectEventSink for TauriQconnectEventSink {
                     message_type,
                     serde_json::to_string(payload).unwrap_or_else(|_| "?".to_string())
                 );
+                self.apply_session_management_event(message_type, payload)
+                    .await;
             }
             QconnectAppEvent::RendererUpdated(renderer_state) => {
                 log::info!(
@@ -366,6 +387,92 @@ impl QconnectEventSink for TauriQconnectEventSink {
     }
 }
 
+impl TauriQconnectEventSink {
+    async fn apply_session_management_event(&self, message_type: &str, payload: &Value) {
+        let mut state = self.sync_state.lock().await;
+        match message_type {
+            "MESSAGE_TYPE_SRVR_CTRL_SESSION_STATE" => {
+                if let Some(uuid) = payload.get("session_uuid").and_then(Value::as_str) {
+                    state.session.session_uuid = Some(uuid.to_string());
+                }
+                if let Some(id) = payload.get("active_renderer_id").and_then(Value::as_i64) {
+                    state.session.active_renderer_id = Some(id as i32);
+                }
+            }
+            "MESSAGE_TYPE_SRVR_CTRL_ADD_RENDERER" => {
+                if let Some(renderer_id) = payload.get("renderer_id").and_then(Value::as_i64) {
+                    let renderer_id = renderer_id as i32;
+                    // Don't add duplicates
+                    if !state
+                        .session
+                        .renderers
+                        .iter()
+                        .any(|r| r.renderer_id == renderer_id)
+                    {
+                        let device_info = payload.get("device_info");
+                        state.session.renderers.push(QconnectRendererInfo {
+                            renderer_id,
+                            friendly_name: device_info
+                                .and_then(|d| d.get("friendly_name"))
+                                .and_then(Value::as_str)
+                                .map(String::from),
+                            brand: device_info
+                                .and_then(|d| d.get("brand"))
+                                .and_then(Value::as_str)
+                                .map(String::from),
+                            model: device_info
+                                .and_then(|d| d.get("model"))
+                                .and_then(Value::as_str)
+                                .map(String::from),
+                            device_type: device_info
+                                .and_then(|d| d.get("device_type"))
+                                .and_then(Value::as_i64)
+                                .map(|v| v as i32),
+                        });
+                    }
+                }
+            }
+            "MESSAGE_TYPE_SRVR_CTRL_UPDATE_RENDERER" => {
+                if let Some(renderer_id) = payload.get("renderer_id").and_then(Value::as_i64) {
+                    let renderer_id = renderer_id as i32;
+                    if let Some(existing) = state
+                        .session
+                        .renderers
+                        .iter_mut()
+                        .find(|r| r.renderer_id == renderer_id)
+                    {
+                        let device_info = payload.get("device_info");
+                        if let Some(name) = device_info
+                            .and_then(|d| d.get("friendly_name"))
+                            .and_then(Value::as_str)
+                        {
+                            existing.friendly_name = Some(name.to_string());
+                        }
+                    }
+                }
+            }
+            "MESSAGE_TYPE_SRVR_CTRL_REMOVE_RENDERER" => {
+                if let Some(renderer_id) = payload.get("renderer_id").and_then(Value::as_i64) {
+                    let renderer_id = renderer_id as i32;
+                    state
+                        .session
+                        .renderers
+                        .retain(|r| r.renderer_id != renderer_id);
+                }
+            }
+            "MESSAGE_TYPE_SRVR_CTRL_ACTIVE_RENDERER_CHANGED" => {
+                if let Some(id) = payload
+                    .get("active_renderer_id")
+                    .and_then(Value::as_i64)
+                {
+                    state.session.active_renderer_id = Some(id as i32);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub struct QconnectServiceState {
     inner: Arc<Mutex<QconnectServiceInner>>,
 }
@@ -393,10 +500,11 @@ impl QconnectServiceState {
         }
 
         let transport = Arc::new(NativeWsTransport::new());
+        let sync_state = Arc::new(Mutex::new(QconnectRemoteSyncState::default()));
         let sink = Arc::new(TauriQconnectEventSink {
             app_handle: app_handle.clone(),
             core_bridge,
-            sync_state: Arc::new(Mutex::new(QconnectRemoteSyncState::default())),
+            sync_state: Arc::clone(&sync_state),
         });
         let app = Arc::new(QconnectApp::new(transport, sink));
 
@@ -493,6 +601,7 @@ impl QconnectServiceState {
             app,
             config,
             event_loop,
+            sync_state,
         };
         let runtime_app = Arc::clone(&runtime.app);
         guard.last_error = None;
@@ -600,6 +709,20 @@ impl QconnectServiceState {
         };
 
         Ok(app.renderer_state_snapshot().await)
+    }
+
+    pub async fn session_snapshot(&self) -> Result<QconnectSessionState, String> {
+        let sync_state = {
+            let guard = self.inner.lock().await;
+            guard
+                .runtime
+                .as_ref()
+                .map(|runtime| Arc::clone(&runtime.sync_state))
+                .ok_or_else(|| "QConnect service is not running".to_string())?
+        };
+
+        let state = sync_state.lock().await;
+        Ok(state.session.clone())
     }
 
     pub async fn send_renderer_report(
@@ -1409,6 +1532,16 @@ pub async fn v2_qconnect_renderer_snapshot(
 ) -> Result<QConnectRendererState, RuntimeError> {
     service
         .renderer_snapshot()
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_session_snapshot(
+    service: State<'_, QconnectServiceState>,
+) -> Result<QconnectSessionState, RuntimeError> {
+    service
+        .session_snapshot()
         .await
         .map_err(RuntimeError::Internal)
 }
