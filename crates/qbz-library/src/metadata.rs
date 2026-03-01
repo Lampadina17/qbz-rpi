@@ -185,17 +185,49 @@ impl MetadataExtractor {
         Self::disc_number_from_name(parent_name)
     }
 
-    fn album_root_dir(file_path: &Path) -> Option<PathBuf> {
-        let parent_dir = file_path.parent()?;
-        let parent_name = parent_dir.file_name().and_then(|s| s.to_str());
+    /// Returns true if the folder name looks like an audio encoding/quality
+    /// directory (e.g., "FLAC 24-bit - 96 kHz", "MP3 320 kbps").
+    fn is_encoding_folder(name: &str) -> bool {
+        let lower = name.to_lowercase();
+        let first_word = lower
+            .split(|c: char| c.is_whitespace() || c == '-' || c == '_')
+            .find(|tok| !tok.is_empty());
 
-        if let Some(name) = parent_name {
-            if Self::is_disc_folder(name) {
-                return parent_dir.parent().map(|p| p.to_path_buf());
+        if let Some(word) = first_word {
+            if matches!(
+                word,
+                "flac" | "mp3" | "aac" | "alac" | "wav" | "aiff" | "ogg"
+                    | "dsd" | "opus" | "wma" | "ape" | "pcm"
+            ) {
+                return true;
             }
         }
 
-        Some(parent_dir.to_path_buf())
+        // Standalone bitrate patterns like "320kbps"
+        if lower.contains("kbps") {
+            return true;
+        }
+
+        false
+    }
+
+    fn album_root_dir(file_path: &Path) -> Option<PathBuf> {
+        let mut dir = file_path.parent()?.to_path_buf();
+
+        // Skip past disc and encoding subdirectories to find the actual album root.
+        // Handles: album/track, album/disc1/track, album/FLAC 24-96/track,
+        //          album/FLAC 24-96/disc1/track
+        for _ in 0..2 {
+            let name = dir.file_name().and_then(|s| s.to_str());
+            match name {
+                Some(n) if Self::is_disc_folder(n) || Self::is_encoding_folder(n) => {
+                    dir = dir.parent()?.to_path_buf();
+                }
+                _ => break,
+            }
+        }
+
+        Some(dir)
     }
 
     fn infer_artist_album(file_path: &Path) -> (Option<String>, Option<String>) {
@@ -630,5 +662,61 @@ mod tests {
             MetadataExtractor::detect_format(Path::new("test.mp3")),
             AudioFormat::Mp3
         );
+    }
+
+    #[test]
+    fn test_is_encoding_folder() {
+        // QBZ-generated quality folder names
+        assert!(MetadataExtractor::is_encoding_folder("FLAC 16-bit - 44.1 kHz"));
+        assert!(MetadataExtractor::is_encoding_folder("FLAC 24-bit - 96 kHz"));
+        assert!(MetadataExtractor::is_encoding_folder("FLAC 24-bit - 192 kHz"));
+        assert!(MetadataExtractor::is_encoding_folder("MP3 320 kbps"));
+
+        // Common encoding folder names from other tools
+        assert!(MetadataExtractor::is_encoding_folder("FLAC"));
+        assert!(MetadataExtractor::is_encoding_folder("flac"));
+        assert!(MetadataExtractor::is_encoding_folder("MP3"));
+        assert!(MetadataExtractor::is_encoding_folder("WAV"));
+        assert!(MetadataExtractor::is_encoding_folder("ALAC"));
+        assert!(MetadataExtractor::is_encoding_folder("DSD"));
+        assert!(MetadataExtractor::is_encoding_folder("320kbps"));
+
+        // Not encoding folders
+        assert!(!MetadataExtractor::is_encoding_folder("Abbey Road"));
+        assert!(!MetadataExtractor::is_encoding_folder("Disc 1"));
+        assert!(!MetadataExtractor::is_encoding_folder("The Beatles"));
+        assert!(!MetadataExtractor::is_encoding_folder("2024"));
+    }
+
+    #[test]
+    fn test_album_root_dir_plain() {
+        // artist/album/track.flac -> album/
+        let path = Path::new("/music/EELS/Beautiful Freak/01 - Novocaine.flac");
+        let root = MetadataExtractor::album_root_dir(path).unwrap();
+        assert_eq!(root, Path::new("/music/EELS/Beautiful Freak"));
+    }
+
+    #[test]
+    fn test_album_root_dir_disc_folder() {
+        // artist/album/disc1/track.flac -> album/
+        let path = Path::new("/music/EELS/Beautiful Freak/Disc 1/01 - Novocaine.flac");
+        let root = MetadataExtractor::album_root_dir(path).unwrap();
+        assert_eq!(root, Path::new("/music/EELS/Beautiful Freak"));
+    }
+
+    #[test]
+    fn test_album_root_dir_encoding_folder() {
+        // artist/album/quality/track.flac -> album/
+        let path = Path::new("/music/EELS/Beautiful Freak/FLAC 24-bit - 96 kHz/01 - Novocaine.flac");
+        let root = MetadataExtractor::album_root_dir(path).unwrap();
+        assert_eq!(root, Path::new("/music/EELS/Beautiful Freak"));
+    }
+
+    #[test]
+    fn test_album_root_dir_encoding_and_disc() {
+        // artist/album/quality/disc1/track.flac -> album/
+        let path = Path::new("/music/EELS/Beautiful Freak/FLAC 24-bit - 96 kHz/Disc 1/01 - Novocaine.flac");
+        let root = MetadataExtractor::album_root_dir(path).unwrap();
+        assert_eq!(root, Path::new("/music/EELS/Beautiful Freak"));
     }
 }
