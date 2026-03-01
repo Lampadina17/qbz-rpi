@@ -393,6 +393,37 @@ fn get_screen_resolution() -> Option<(f64, f64)> {
     None
 }
 
+#[cfg(target_os = "linux")]
+fn apply_linux_webkit_workarounds() {
+    let force_gpu = std::env::var("QBZ_WEBKIT_FORCE_GPU")
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes"
+        })
+        .unwrap_or(false);
+
+    if force_gpu {
+        log::warn!(
+            "QBZ_WEBKIT_FORCE_GPU is enabled; skipping Linux WebKit safety workarounds"
+        );
+        return;
+    }
+
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        log::warn!(
+            "Enabled WEBKIT_DISABLE_DMABUF_RENDERER=1 (stability workaround for Linux WebKit/EGL teardown)"
+        );
+    }
+
+    if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        log::warn!(
+            "Enabled WEBKIT_DISABLE_COMPOSITING_MODE=1 (stability workaround for Linux WebKit/EGL teardown)"
+        );
+    }
+}
+
 pub fn run() {
     // Load .env file if present (for development)
     // Silently ignore if not found (production builds use compile-time env vars)
@@ -405,6 +436,9 @@ pub fn run() {
         .init();
 
     log::info!("QBZ starting...");
+
+    #[cfg(target_os = "linux")]
+    apply_linux_webkit_workarounds();
 
     // Migrate data from old App ID if needed
     match flatpak::migrate_app_id_data() {
