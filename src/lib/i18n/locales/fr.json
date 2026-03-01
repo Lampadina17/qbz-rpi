@@ -1654,6 +1654,8 @@
     "downloadProgress": "Téléchargement {current}/{total}...",
     "complete": "Téléchargement terminé",
     "failed": "Échec du téléchargement",
+    "cancelDownload": "Annuler le téléchargement",
+    "downloadCancelled": "Téléchargement annulé ({completed}/{total})",
     "filter": {
       "all": "Tout",
       "downloaded": "Téléchargés",

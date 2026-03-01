@@ -2,12 +2,12 @@
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
   import { invoke } from '@tauri-apps/api/core';
-  import { ArrowLeft, Download, Check, Loader2, AlertTriangle, Library, Play } from 'lucide-svelte';
+  import { ArrowLeft, Download, Check, Loader2, AlertTriangle, Library, Play, X } from 'lucide-svelte';
   import QualityBadge from '../QualityBadge.svelte';
   import Dropdown from '../Dropdown.svelte';
   import ViewTransition from '../ViewTransition.svelte';
   import { getAlbumDetail, getFormats } from '$lib/services/purchases';
-  import { purchaseDownloads, startAlbumDownload, startTrackDownload, getAlbumDownloadFormatId, clearAlbumDownloadState } from '$lib/stores/purchaseDownloadStore';
+  import { purchaseDownloads, startAlbumDownload, startTrackDownload, cancelAlbumDownload, getAlbumDownloadFormatId, clearAlbumDownloadState } from '$lib/stores/purchaseDownloadStore';
   import type { TrackDownloadStatus } from '$lib/stores/purchaseDownloadStore';
   import { formatDuration, getQobuzImage } from '$lib/adapters/qobuzAdapters';
   import { showToast } from '$lib/stores/toastStore';
@@ -202,6 +202,10 @@
   const completedCount = $derived(
     Object.values(downloadStatuses).filter((s) => s === 'complete').length
   );
+  const wasCancelled = $derived(
+    !isDownloadingAll && !allComplete &&
+    Object.values(downloadStatuses).some((s) => s === 'cancelled')
+  );
   const totalTracks = $derived(album?.tracks?.items?.length || 0);
   const totalDurationSeconds = $derived(
     (album?.tracks?.items || []).reduce((sum, track) => sum + track.duration, 0)
@@ -310,21 +314,33 @@
     </div>
 
     <!-- Download progress -->
-    {#if isDownloadingAll || allComplete}
+    {#if isDownloadingAll || allComplete || wasCancelled}
       <div class="progress-section">
         <div class="progress-label">
           {#if allComplete}
             <Check size={14} />
             <span>{$t('purchases.complete')}</span>
+          {:else if wasCancelled}
+            <X size={14} />
+            <span>{$t('purchases.downloadCancelled', { values: { completed: completedCount, total: totalTracks } })}</span>
           {:else}
             <Loader2 size={14} class="spin" />
             <span>{$t('purchases.downloadProgress', { values: { current: completedCount, total: totalTracks } })}</span>
+            <button
+              class="cancel-download-btn"
+              onclick={() => cancelAlbumDownload(albumId)}
+              title={$t('purchases.cancelDownload')}
+            >
+              <X size={12} />
+              <span>{$t('actions.cancel')}</span>
+            </button>
           {/if}
         </div>
         <div class="progress-bar">
           <div
             class="progress-fill"
             class:complete={allComplete}
+            class:cancelled={wasCancelled}
             style="width: {totalTracks > 0 ? (completedCount / totalTracks) * 100 : 0}%"
           ></div>
         </div>
@@ -665,6 +681,31 @@
 
   .progress-fill.complete {
     background: var(--success, #4caf50);
+  }
+
+  .progress-fill.cancelled {
+    background: var(--text-muted);
+  }
+
+  .cancel-download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .cancel-download-btn:hover {
+    color: var(--color-error, #ef4444);
+    border-color: var(--color-error, #ef4444);
+    background: rgba(239, 68, 68, 0.08);
   }
 
   /* Add to Library */

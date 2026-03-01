@@ -7,7 +7,7 @@
   import AlbumCard from '../AlbumCard.svelte';
   import QualityBadge from '../QualityBadge.svelte';
   import { getPurchasesByType, getPurchaseIds, searchPurchases, getDownloadedTrackIds, getFormats } from '$lib/services/purchases';
-  import { allTrackStatuses, startTrackDownload } from '$lib/stores/purchaseDownloadStore';
+  import { allTrackStatuses, startTrackDownload, type TrackDownloadStatus } from '$lib/stores/purchaseDownloadStore';
   import { showToast } from '$lib/stores/toastStore';
   import { formatDuration, getQobuzImage } from '$lib/adapters/qobuzAdapters';
   import {
@@ -396,7 +396,7 @@
     };
   }
 
-  function getTrackDownloadStatus(trackId: number): 'downloading' | 'complete' | 'failed' | null {
+  function getTrackDownloadStatus(trackId: number): TrackDownloadStatus | null {
     return $allTrackStatuses[trackId] || null;
   }
 

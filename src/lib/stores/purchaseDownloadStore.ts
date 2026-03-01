@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { downloadTrack, markTrackDownloaded } from '$lib/services/purchases';
 
-export type TrackDownloadStatus = 'downloading' | 'complete' | 'failed';
+export type TrackDownloadStatus = 'downloading' | 'complete' | 'failed' | 'cancelled';
 
 interface AlbumDownloadState {
   trackStatuses: Record<number, TrackDownloadStatus>;
@@ -13,6 +13,9 @@ interface AlbumDownloadState {
 
 // Persistent store: albumId -> download state (survives component unmount)
 export const purchaseDownloads = writable<Record<string, AlbumDownloadState>>({});
+
+// Abort flags keyed by albumId — checked between sequential track downloads
+const abortFlags = new Map<string, boolean>();
 
 // Flat view of all track statuses across all albums (for PurchasesView)
 export const allTrackStatuses = derived(purchaseDownloads, ($downloads) => {
@@ -46,10 +49,16 @@ export function getAlbumDownloadFormatId(albumId: string): number | undefined {
 
 /** Clear in-memory download state for an album (e.g. after adding to library). */
 export function clearAlbumDownloadState(albumId: string) {
+  abortFlags.delete(albumId);
   purchaseDownloads.update((all) => {
     const { [albumId]: _, ...rest } = all;
     return rest;
   });
+}
+
+/** Cancel an in-progress album download. The current track will finish, but no more will start. */
+export function cancelAlbumDownload(albumId: string) {
+  abortFlags.set(albumId, true);
 }
 
 export function startAlbumDownload(
@@ -59,6 +68,7 @@ export function startAlbumDownload(
   destination: string,
   qualityDir: string = ''
 ) {
+  abortFlags.delete(albumId);
   updateAlbumState(albumId, () => ({
     trackStatuses: {},
     isDownloadingAll: true,
@@ -77,6 +87,26 @@ async function executeAlbumDownload(
   qualityDir: string
 ) {
   for (const trackId of trackIds) {
+    // Check cancellation before starting each track
+    if (abortFlags.get(albumId)) {
+      // Mark remaining tracks as cancelled
+      const currentState = get(purchaseDownloads)[albumId];
+      const remaining: Record<number, TrackDownloadStatus> = {};
+      for (const id of trackIds) {
+        if (!currentState?.trackStatuses[id]) {
+          remaining[id] = 'cancelled';
+        }
+      }
+      updateAlbumState(albumId, (state) => ({
+        ...state,
+        trackStatuses: { ...state.trackStatuses, ...remaining },
+        isDownloadingAll: false,
+        allComplete: false,
+      }));
+      abortFlags.delete(albumId);
+      return;
+    }
+
     updateAlbumState(albumId, (state) => ({
       ...state,
       trackStatuses: { ...state.trackStatuses, [trackId]: 'downloading' },
@@ -98,6 +128,7 @@ async function executeAlbumDownload(
   }
 
   // Finalize
+  abortFlags.delete(albumId);
   const currentState = get(purchaseDownloads)[albumId];
   if (currentState) {
     const allDone = trackIds.every(

@@ -1825,6 +1825,8 @@
     "downloadProgress": "Downloading {current}/{total}...",
     "complete": "Download complete",
     "failed": "Download failed",
+    "cancelDownload": "Cancel download",
+    "downloadCancelled": "Download cancelled ({completed}/{total})",
     "filter": {
       "all": "All",
       "downloaded": "Downloaded",
