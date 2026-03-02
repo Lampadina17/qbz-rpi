@@ -14,34 +14,18 @@ finish-args:
   - --socket=pulseaudio
   - --device=dri
 
-  # Standard user directories
-  - --filesystem=xdg-download
+  # Native PipeWire access
+  - --filesystem=xdg-run/pipewire-0:ro
+
+  # User music library
   - --filesystem=xdg-music
-  - --filesystem=xdg-cache
-  - --filesystem=xdg-config
 
-  # External drives and network mounts (NAS support)
-  - --filesystem=/mnt
-  - --filesystem=/media
-  - --filesystem=/run/media
-
-  # Migration: Read-only access to old App ID data for one-time migration
-  # This allows copying user data from com.blitzkriegfc.qbz to com.blitzfc.qbz
-  # Can be removed in a future release after users have migrated
-  - --filesystem=~/.var/app/com.blitzkriegfc.qbz:ro
-
-  # Required for tray icon to be visible (Tauri writes icon to temp location)
-  - --filesystem=xdg-run/tray-icon:create
-
-  # Portals and notifications
+  # Notifications and tray
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.kde.StatusNotifierWatcher
-  - --talk-name=org.freedesktop.portal.Desktop
-  - --talk-name=org.freedesktop.portal.FileChooser
-  - --talk-name=org.mpris.MediaPlayer2.*
 
-  # OAuth browser authentication
-  - --talk-name=org.freedesktop.portal.OpenURI
+  # MPRIS media controls (own-name auto-granted: name contains appid)
+  - --talk-name=org.mpris.MediaPlayer2.*
 
 modules:
   # intltool required for libdbusmenu
