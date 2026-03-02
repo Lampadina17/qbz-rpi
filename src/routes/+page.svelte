@@ -375,6 +375,7 @@
   import UpdateReminderModal from '$lib/components/updates/UpdateReminderModal.svelte';
   import WhatsNewModal from '$lib/components/updates/WhatsNewModal.svelte';
   import FlatpakWelcomeModal from '$lib/components/updates/FlatpakWelcomeModal.svelte';
+  import SnapWelcomeModal from '$lib/components/updates/SnapWelcomeModal.svelte';
   import KeyboardShortcutsModal from '$lib/components/KeyboardShortcutsModal.svelte';
   import KeybindingsSettings from '$lib/components/KeybindingsSettings.svelte';
   import LinkResolverModal from '$lib/components/LinkResolverModal.svelte';
@@ -386,6 +387,7 @@
     disableUpdateChecks,
     ignoreReleaseVersion,
     markFlatpakWelcomeShown,
+    markSnapWelcomeShown,
     openReleasePageAndAcknowledge,
     resetLaunchFlow,
   } from '$lib/services/updatesService';
@@ -437,6 +439,7 @@
   let isReminderModalOpen = $state(false);
   let isWhatsNewModalOpen = $state(false);
   let isFlatpakWelcomeOpen = $state(false);
+  let isSnapWelcomeOpen = $state(false);
   let updatesLaunchTriggered = $state(false);
   let sessionReady = $state(false);
 
@@ -511,17 +514,21 @@
     updatesCurrentVersion = decision.currentVersion;
 
     // Store pending modals for sequential display
-    // Order: Flatpak → What's new → Update available
+    // Order: Flatpak/Snap → What's new → Update available
     pendingWhatsNewRelease = decision.whatsNewRelease;
     pendingUpdateRelease = decision.updateRelease;
 
-    // Show first modal in queue (Flatpak has highest priority)
+    // Show first modal in queue (sandbox welcome has highest priority)
     if (decision.showFlatpakWelcome) {
       isFlatpakWelcomeOpen = true;
       return;
     }
+    if (decision.showSnapWelcome) {
+      isSnapWelcomeOpen = true;
+      return;
+    }
 
-    // No Flatpak modal, try What's New
+    // No sandbox modal, try What's New
     showNextModalInQueue();
   }
 
@@ -577,6 +584,13 @@
   function handleFlatpakWelcomeClose(): void {
     isFlatpakWelcomeOpen = false;
     void markFlatpakWelcomeShown();
+    // Show next modal in queue
+    showNextModalInQueue();
+  }
+
+  function handleSnapWelcomeClose(): void {
+    isSnapWelcomeOpen = false;
+    void markSnapWelcomeShown();
     // Show next modal in queue
     showNextModalInQueue();
   }
@@ -4626,6 +4640,11 @@
     <FlatpakWelcomeModal
       isOpen={isFlatpakWelcomeOpen}
       onClose={handleFlatpakWelcomeClose}
+    />
+
+    <SnapWelcomeModal
+      isOpen={isSnapWelcomeOpen}
+      onClose={handleSnapWelcomeClose}
     />
 
     <!-- Track Info Modal -->

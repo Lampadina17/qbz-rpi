@@ -26,6 +26,7 @@ pub mod config;
 pub mod credentials;
 pub mod discogs;
 pub mod flatpak;
+pub mod snap;
 pub mod lastfm;
 pub mod library;
 pub mod listenbrainz;
@@ -1183,6 +1184,7 @@ pub fn run() {
             flatpak::get_flatpak_help_text,
             config::legal_settings::get_qobuz_tos_accepted,
             updates::has_flatpak_welcome_been_shown,
+            updates::has_snap_welcome_been_shown,
             lyrics::commands::lyrics_get,
             config::favorites_cache::is_track_favorite,
             commands_v2::v2_set_api_locale,
@@ -1356,6 +1358,8 @@ pub fn run() {
             commands_v2::v2_remote_control_regenerate_token,
             commands_v2::v2_remote_control_get_pairing_qr,
             commands_v2::v2_is_running_in_flatpak,
+            commands_v2::v2_is_running_in_snap,
+            commands_v2::v2_mark_snap_welcome_shown,
             commands_v2::v2_detect_legacy_cached_files,
             commands_v2::v2_reco_log_event,
             commands_v2::v2_reco_train_scores,

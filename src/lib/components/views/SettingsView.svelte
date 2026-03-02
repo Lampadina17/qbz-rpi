@@ -279,6 +279,9 @@
   // Flatpak detection state
   let isFlatpak = $state(false);
   let flatpakHelpText = $state('');
+
+  // Snap detection state
+  let isSnap = $state(false);
   let isCheckingNetwork = $state(false);
 
   // Updates state
@@ -383,13 +386,13 @@
     { id: 'developer', labelKey: 'settings.developer.title' },
   ];
 
-  // Navigation section definitions (dynamic: includes Flatpak only when running in Flatpak)
-  // NOTE: If adding new sections, add them BEFORE Flatpak. Flatpak must always be last.
-  const navSectionDefs = $derived(
-    isFlatpak
-      ? [...navSectionIds, { id: 'flatpak', labelKey: 'nav.flatpak' }]
-      : navSectionIds
-  );
+  // Navigation section definitions (dynamic: includes sandbox sections when detected)
+  const navSectionDefs = $derived.by(() => {
+    const sections = [...navSectionIds];
+    if (isFlatpak) sections.push({ id: 'flatpak', labelKey: 'nav.flatpak' });
+    if (isSnap) sections.push({ id: 'snap', labelKey: 'nav.snap' });
+    return sections;
+  });
 
 
   async function handleUpdateCheckOnLaunchToggle(enabled: boolean): Promise<void> {
@@ -1382,8 +1385,9 @@
       updatesCurrentVersion = getUpdatesCurrentVersion();
     });
 
-    // Detect if running in Flatpak
+    // Detect sandbox environments
     loadFlatpakStatus();
+    loadSnapStatus();
 
     // Check for legacy cached files
     checkLegacyCachedFiles();
@@ -2536,6 +2540,14 @@
       }
     } catch (err) {
       console.error('Failed to check Flatpak status:', err);
+    }
+  }
+
+  async function loadSnapStatus() {
+    try {
+      isSnap = await invoke<boolean>('v2_is_running_in_snap');
+    } catch (err) {
+      console.error('Failed to check Snap status:', err);
     }
   }
 
@@ -5395,8 +5407,42 @@
 
   <LogsModal isOpen={showLogsModal} onClose={() => showLogsModal = false} />
 
+  <!-- Snap Section (only shown when running in Snap) -->
+  {#if activeSection === 'snap' && isSnap}
+    <section class="section snap-section" id="snap">
+      <h3 class="section-title">Snap Sandbox</h3>
+      <div class="flatpak-info">
+        <p class="flatpak-intro">
+          QBZ is running inside a Snap sandbox. Some audio interfaces need to be connected manually for the best experience.
+        </p>
+        <div class="flatpak-guide">
+          <h4>Required Plug Connections</h4>
+          <p>Run these commands to enable full audio support:</p>
+          <div class="copyable-command">
+            <pre class="code-block">sudo snap connect qbz-player:alsa
+sudo snap connect qbz-player:pulseaudio
+sudo snap connect qbz-player:pipewire
+sudo snap connect qbz-player:mpris</pre>
+            <button class="copy-btn" onclick={() => copyCommand('snap-required', 'sudo snap connect qbz-player:alsa\nsudo snap connect qbz-player:pulseaudio\nsudo snap connect qbz-player:pipewire\nsudo snap connect qbz-player:mpris')}>
+              {copiedCommands['snap-required'] ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <h4>Optional (External Drives / NAS)</h4>
+          <div class="copyable-command">
+            <pre class="code-block">sudo snap connect qbz-player:removable-media</pre>
+            <button class="copy-btn" onclick={() => copyCommand('snap-optional', 'sudo snap connect qbz-player:removable-media')}>
+              {copiedCommands['snap-optional'] ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <p class="flatpak-note">
+            <strong>Note:</strong> These settings persist across reboots and updates. You only need to run them once, then restart QBZ.
+          </p>
+        </div>
+      </div>
+    </section>
+  {/if}
+
   <!-- Flatpak Section (only shown when running in Flatpak) -->
-  <!-- NOTE: Keep this section LAST. If adding new settings sections, add them BEFORE this one. -->
   {#if activeSection === 'flatpak' && isFlatpak}
     <section class="section flatpak-section" id="flatpak">
       <h3 class="section-title">Flatpak Sandbox</h3>
