@@ -19,6 +19,7 @@ export type {
   UnavailableReason,
   ImmersiveMetrics,
   ImmersiveConfig,
+  BackgroundMode,
 } from './types';
 
 export { DEFAULT_IMMERSIVE_CONFIG } from './types';
@@ -55,3 +56,6 @@ export {
   handleContextLost,
   handleContextRestored,
 } from './ImmersiveRenderer';
+
+// Re-export texture utilities (for Lite mode)
+export { generateAtmosphere } from './utils/texture-loader';

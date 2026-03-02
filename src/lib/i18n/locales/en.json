@@ -812,8 +812,16 @@
       },
       "immersive": {
         "title": "Immersive",
-        "disableBlurBackground": "Disable blur background",
-        "disableBlurBackgroundDesc": "Replace the blurred album artwork background with a solid dark color. Significantly reduces GPU load and fixes stutter on some systems.",
+        "backgroundMode": "Background effect",
+        "backgroundModeDesc": "Controls how the blurred artwork background is rendered in immersive mode.",
+        "backgroundModes": {
+          "full": "Full",
+          "fullDesc": "GPU-accelerated shader with animated blur, color shifts, and breathing effects.",
+          "lite": "Lite",
+          "liteDesc": "Pre-blurred image with smooth CSS animation. Best for multi-monitor setups.",
+          "off": "Off",
+          "offDesc": "Solid dark color. Minimal GPU usage."
+        },
         "blurChangeNote": "Re-enter immersive mode to apply."
       },
       "immersiveFps": {

@@ -775,8 +775,16 @@
       },
       "immersive": {
         "title": "Immersiv",
-        "disableBlurBackground": "Unscharfen Hintergrund deaktivieren",
-        "disableBlurBackgroundDesc": "Ersetzt den unscharfen Album-Hintergrund durch eine dunkle Volltonfarbe. Reduziert die GPU-Last erheblich und behebt Ruckeln auf einigen Systemen.",
+        "backgroundMode": "Hintergrundeffekt",
+        "backgroundModeDesc": "Steuert, wie der unscharfe Artwork-Hintergrund im Immersiv-Modus gerendert wird.",
+        "backgroundModes": {
+          "full": "Voll",
+          "fullDesc": "GPU-beschleunigter Shader mit animierter Unschaerfe, Farbverschiebungen und Atemeffekten.",
+          "lite": "Leicht",
+          "liteDesc": "Vorverarbeitetes unscharfes Bild mit sanfter CSS-Animation. Ideal fuer Multi-Monitor-Setups.",
+          "off": "Aus",
+          "offDesc": "Dunkle Volltonfarbe. Minimale GPU-Nutzung."
+        },
         "blurChangeNote": "Immersiv-Modus erneut oeffnen, um anzuwenden."
       },
       "immersiveFps": {

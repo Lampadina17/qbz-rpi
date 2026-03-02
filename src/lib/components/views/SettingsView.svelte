@@ -325,7 +325,7 @@
     gdkScale: string;
     gdkDpiScale: string;
     gskRenderer: string;
-    disableBlurBackground: boolean;
+    backgroundMode: 'full' | 'lite' | 'off';
     labelKey: string;
     descKey: string;
   };
@@ -337,7 +337,7 @@
       gdkScale: '',
       gdkDpiScale: '',
       gskRenderer: '',
-      disableBlurBackground: false,
+      backgroundMode: 'full',
       labelKey: 'settings.appearance.composition.profiles.nativeWaylandLabel',
       descKey: 'settings.appearance.composition.profiles.nativeWaylandDesc',
     },
@@ -347,7 +347,7 @@
       gdkScale: '1',
       gdkDpiScale: '1.1',
       gskRenderer: '',
-      disableBlurBackground: false,
+      backgroundMode: 'full',
       labelKey: 'settings.appearance.composition.profiles.x11BalancedLabel',
       descKey: 'settings.appearance.composition.profiles.x11BalancedDesc',
     },
@@ -357,7 +357,7 @@
       gdkScale: '1',
       gdkDpiScale: '1',
       gskRenderer: '',
-      disableBlurBackground: true,
+      backgroundMode: 'off',
       labelKey: 'settings.appearance.composition.profiles.x11PerformanceLabel',
       descKey: 'settings.appearance.composition.profiles.x11PerformanceDesc',
     },
@@ -367,7 +367,7 @@
       gdkScale: '',
       gdkDpiScale: '',
       gskRenderer: 'cairo',
-      disableBlurBackground: true,
+      backgroundMode: 'off',
       labelKey: 'settings.appearance.composition.profiles.maxPerformanceLabel',
       descKey: 'settings.appearance.composition.profiles.maxPerformanceDesc',
     },
@@ -1063,12 +1063,19 @@
     }
   }
 
-  // Immersive blur background toggle
-  let disableBlurBackground = $state(getImmersiveConfig().disableBlurBackground);
+  // Immersive background mode
+  const BACKGROUND_MODES = ['full', 'lite', 'off'] as const;
+  let backgroundMode = $state(getImmersiveConfig().backgroundMode ?? 'full');
 
-  function handleDisableBlurBackgroundChange(enabled: boolean) {
-    disableBlurBackground = enabled;
-    setImmersiveConfig({ disableBlurBackground: enabled });
+  function getBackgroundModeLabel(mode: string): string {
+    return $t(`settings.appearance.immersive.backgroundModes.${mode}`);
+  }
+
+  function handleBackgroundModeChange(label: string) {
+    const mode = BACKGROUND_MODES.find(m => getBackgroundModeLabel(m) === label);
+    if (!mode) return;
+    backgroundMode = mode;
+    setImmersiveConfig({ backgroundMode: mode, disableBlurBackground: mode === 'off' });
     showToast($t('settings.appearance.immersive.blurChangeNote'), 'info');
   }
 
@@ -3400,7 +3407,7 @@
         && normalizeScaleValue(profile.gdkScale) === currentScale
         && normalizeScaleValue(profile.gdkDpiScale) === currentDpiScale
         && profile.gskRenderer === gskRenderer
-        && profile.disableBlurBackground === disableBlurBackground
+        && profile.backgroundMode === backgroundMode
       ) {
         return profile.id;
       }
@@ -3418,21 +3425,21 @@
     const previousGdkScale = gdkScale;
     const previousGdkDpiScale = gdkDpiScale;
     const previousGskRenderer = gskRenderer;
-    const previousDisableBlur = disableBlurBackground;
+    const previousBackgroundMode = backgroundMode;
 
     // Optimistic UI update so toggles/inputs reflect the selected profile immediately
     forceX11 = profile.forceX11;
     gdkScale = profile.gdkScale;
     gdkDpiScale = profile.gdkDpiScale;
     gskRenderer = profile.gskRenderer;
-    disableBlurBackground = profile.disableBlurBackground;
+    backgroundMode = profile.backgroundMode;
 
     try {
       await invoke('v2_set_force_x11', { enabled: profile.forceX11 });
       await invoke('v2_set_gdk_scale', { value: profile.gdkScale || null });
       await invoke('v2_set_gdk_dpi_scale', { value: profile.gdkDpiScale || null });
       await invoke('v2_set_gsk_renderer', { value: profile.gskRenderer || null });
-      setImmersiveConfig({ disableBlurBackground: profile.disableBlurBackground });
+      setImmersiveConfig({ backgroundMode: profile.backgroundMode, disableBlurBackground: profile.backgroundMode === 'off' });
 
       showToast(
         $t('settings.appearance.composition.profiles.applied', { values: { profile: $t(profile.labelKey) } }),
@@ -3445,7 +3452,7 @@
       gdkScale = previousGdkScale;
       gdkDpiScale = previousGdkDpiScale;
       gskRenderer = previousGskRenderer;
-      disableBlurBackground = previousDisableBlur;
+      backgroundMode = previousBackgroundMode;
       console.error('Failed to apply composition profile:', err);
       showToast(String(err), 'error');
     }
@@ -4426,10 +4433,14 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$t('settings.appearance.immersive.disableBlurBackground')}</span>
-        <span class="setting-desc">{$t('settings.appearance.immersive.disableBlurBackgroundDesc')}</span>
+        <span class="setting-label">{$t('settings.appearance.immersive.backgroundMode')}</span>
+        <span class="setting-desc">{$t('settings.appearance.immersive.backgroundModeDesc')}</span>
       </div>
-      <Toggle enabled={disableBlurBackground} onchange={(v) => handleDisableBlurBackgroundChange(v)} />
+      <Dropdown
+        value={getBackgroundModeLabel(backgroundMode)}
+        options={BACKGROUND_MODES.map(m => getBackgroundModeLabel(m))}
+        onchange={handleBackgroundModeChange}
+      />
     </div>
 
     <div class="collapsible-section composition-subsection">

@@ -266,7 +266,7 @@ function applyVignette(
  * Generate an atmospheric color field from artwork.
  * The result must be COMPLETELY UNRECOGNIZABLE.
  */
-async function generateAtmosphere(
+export async function generateAtmosphere(
   imageUrl: string,
   signal?: AbortSignal
 ): Promise<string> {

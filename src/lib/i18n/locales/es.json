@@ -812,8 +812,16 @@
       },
       "immersive": {
         "title": "Inmersivo",
-        "disableBlurBackground": "Desactivar fondo difuminado",
-        "disableBlurBackgroundDesc": "Reemplaza el fondo difuminado del album con un color oscuro solido. Reduce significativamente la carga de GPU y corrige el tartamudeo en algunos sistemas.",
+        "backgroundMode": "Efecto de fondo",
+        "backgroundModeDesc": "Controla como se renderiza el fondo difuminado en el modo inmersivo.",
+        "backgroundModes": {
+          "full": "Completo",
+          "fullDesc": "Shader acelerado por GPU con desenfoque animado, cambios de color y efectos de respiracion.",
+          "lite": "Ligero",
+          "liteDesc": "Imagen pre-difuminada con animacion CSS suave. Ideal para configuraciones multi-monitor.",
+          "off": "Desactivado",
+          "offDesc": "Color oscuro solido. Uso minimo de GPU."
+        },
         "blurChangeNote": "Volver a entrar en modo inmersivo para aplicar."
       },
       "immersiveFps": {

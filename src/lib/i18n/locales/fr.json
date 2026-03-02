@@ -775,8 +775,16 @@
       },
       "immersive": {
         "title": "Immersif",
-        "disableBlurBackground": "Desactiver le fond flou",
-        "disableBlurBackgroundDesc": "Remplace le fond flou de l'album par une couleur sombre unie. Reduit considerablement la charge GPU et corrige les saccades sur certains systemes.",
+        "backgroundMode": "Effet de fond",
+        "backgroundModeDesc": "Controle le rendu du fond flou dans le mode immersif.",
+        "backgroundModes": {
+          "full": "Complet",
+          "fullDesc": "Shader accelere par GPU avec flou anime, changements de couleur et effets de respiration.",
+          "lite": "Leger",
+          "liteDesc": "Image pre-floutee avec animation CSS fluide. Ideal pour les configurations multi-ecrans.",
+          "off": "Desactive",
+          "offDesc": "Couleur sombre unie. Utilisation GPU minimale."
+        },
         "blurChangeNote": "Quitter et rouvrir le mode immersif pour appliquer."
       },
       "immersiveFps": {

@@ -42,6 +42,9 @@ export interface ImmersiveMetrics {
   gpuMemoryBytes: number;
 }
 
+/** Background rendering mode for immersive player */
+export type BackgroundMode = 'full' | 'lite' | 'off';
+
 /** Configuration options for the immersive renderer */
 export interface ImmersiveConfig {
   /** Target FPS for animation (lower = less power) */
@@ -52,8 +55,10 @@ export interface ImmersiveConfig {
   pauseWhenHidden: boolean;
   /** Enable debug overlay with metrics */
   debugOverlay: boolean;
-  /** Disable blur background to reduce GPU load (renders solid dark color instead) */
+  /** @deprecated Use backgroundMode instead */
   disableBlurBackground: boolean;
+  /** Background rendering mode: 'full' (WebGL2 shader), 'lite' (CSS transform), 'off' (solid color) */
+  backgroundMode: BackgroundMode;
 }
 
 /** Default configuration */
@@ -63,4 +68,5 @@ export const DEFAULT_IMMERSIVE_CONFIG: ImmersiveConfig = {
   pauseWhenHidden: true,
   debugOverlay: false,
   disableBlurBackground: false,
+  backgroundMode: 'full',
 };
