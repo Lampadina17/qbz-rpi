@@ -7,6 +7,7 @@
   <a href="https://github.com/vicrodh/qbz/releases"><img src="https://img.shields.io/github/v/release/vicrodh/qbz?style=flat-square" alt="Release" /></a>
   <a href="https://aur.archlinux.org/packages/qbz-bin"><img src="https://img.shields.io/aur/version/qbz-bin?style=flat-square&logo=archlinux" alt="AUR" /></a>
   <a href="https://snapcraft.io/qbz-player"><img src="https://img.shields.io/badge/snap-qbz--player-0b0b0b?style=flat-square&logo=snapcraft" alt="Snap" /></a>
+  <a href="https://flathub.org/apps/com.blitzfc.qbz"><img src="https://img.shields.io/flathub/v/com.blitzfc.qbz?style=flat-square&logo=flathub" alt="Flathub" /></a>
   <a href="https://github.com/vicrodh/qbz"><img src="https://img.shields.io/github/license/vicrodh/qbz?style=flat-square" alt="License" /></a>
   <a href="https://github.com/vicrodh/qbz"><img src="https://img.shields.io/badge/platform-Linux-0b0b0b?style=flat-square&logo=linux" alt="Platform" /></a>
 </p>
@@ -63,11 +64,16 @@ Optional: external drives and network mounts
 sudo snap connect qbz-player:removable-media
 ```
 
-### Flatpak
+### Flatpak (Flathub)
 
 ```bash
-# Download from releases
-flatpak install ./QBZ.flatpak
+flatpak install flathub com.blitzfc.qbz
+```
+
+Or install from a `.flatpak` file downloaded from [Releases](https://github.com/vicrodh/qbz/releases):
+
+```bash
+flatpak install --user ./QBZ.flatpak
 ```
 
 #### Important for Audiophiles
