@@ -90,8 +90,7 @@ ebur128 = "0.1"
 # Media controls (MPRIS on Linux)
 souvlaki = "0.7"
 
-# Desktop notifications
-notify-rust = "4"
+# Desktop notifications → ashpd in [target.linux] deps below
 
 # Image processing (tray icon + thumbnails)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
@@ -141,8 +140,8 @@ futures-util = "0.3"
 
 # Platform-specific dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
-# Note: xdg-portal feature disabled due to ashpd/zbus version incompatibility
 tauri-plugin-dialog = { version = "2.6.0" }
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "notification"] }
 
 # Direct ALSA access for bit-perfect playback (bypasses CPAL limitations)
 alsa = "0.9"

@@ -61,7 +61,9 @@ use crate::runtime::{
 };
 use crate::AppState;
 use md5::{Digest, Md5};
-use notify_rust::Notification;
+use ashpd::desktop::notification::{Notification as PortalNotification, NotificationProxy};
+use ashpd::desktop::Icon;
+use ashpd::Uri;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
@@ -9397,7 +9399,7 @@ pub async fn v2_uncache_favorite_artist(
 // ==================== Remaining Legacy-Equivalent V2 Commands ====================
 
 #[tauri::command]
-pub fn v2_show_track_notification(
+pub async fn v2_show_track_notification(
     title: String,
     artist: String,
     album: String,
@@ -9428,27 +9430,30 @@ pub fn v2_show_track_notification(
         lines.push(quality);
     }
 
-    let mut notification = Notification::new();
-    notification
-        .summary(&title)
-        .body(&lines.join("\n"))
-        .appname("QBZ")
-        .timeout(4000);
+    let body_text = lines.join("\n");
+    let mut notification = PortalNotification::new(&title)
+        .body(Some(body_text.as_str()));
 
-    if let Some(url) = artwork_url {
-        if let Ok(path) = v2_cache_notification_artwork(&url) {
-            if let Some(path_str) = path.to_str() {
-                notification.image_path(path_str);
+    if let Some(ref url_str) = artwork_url {
+        if let Ok(path) = v2_cache_notification_artwork(url_str) {
+            let file_uri_str = format!("file://{}", path.display());
+            if let Ok(uri) = Uri::parse(&file_uri_str) {
+                notification = notification.icon(Icon::Uri(uri));
             }
         }
     }
 
-    if let Err(e) = notification.show() {
-        log::warn!(
-            "Could not show notification (notification system may be unavailable): {}",
-            e
-        );
+    match NotificationProxy::new().await {
+        Ok(proxy) => {
+            if let Err(e) = proxy.add_notification("track-now-playing", notification).await {
+                log::warn!("Could not show notification via XDG portal: {}", e);
+            }
+        }
+        Err(e) => {
+            log::warn!("XDG notification portal unavailable: {}", e);
+        }
     }
+
     Ok(())
 }
 
