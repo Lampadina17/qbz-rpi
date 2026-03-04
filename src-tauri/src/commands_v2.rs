@@ -63,10 +63,9 @@ use crate::AppState;
 use md5::{Digest, Md5};
 use ashpd::desktop::notification::{Notification as PortalNotification, NotificationProxy};
 use ashpd::desktop::Icon;
-use ashpd::zbus;
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Cursor, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -351,6 +350,9 @@ fn v2_teardown_type_alias_state<S>(state: &Arc<Mutex<Option<S>>>) {
     }
 }
 
+const PORTAL_NOTIFICATION_ICON_MAX_EDGE: u32 = 512;
+const PORTAL_NOTIFICATION_ICON_MAX_BYTES: usize = 4 * 1024 * 1024;
+
 fn v2_get_notification_artwork_cache_dir() -> Result<PathBuf, String> {
     let cache_dir = dirs::cache_dir()
         .ok_or_else(|| "Could not find cache directory".to_string())?
@@ -411,6 +413,59 @@ fn v2_cache_notification_artwork(url: &str) -> Result<PathBuf, String> {
     file.write_all(&bytes)
         .map_err(|e| format!("Failed to write artwork cache: {}", e))?;
     Ok(cache_path)
+}
+
+fn v2_prepare_notification_icon_bytes(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let source_image = image::open(path)
+        .map_err(|e| format!("Failed to decode artwork image {:?}: {}", path, e))?;
+    let source_width = source_image.width();
+    let source_height = source_image.height();
+
+    let square_image = if source_width == source_height {
+        source_image
+    } else {
+        let edge = source_width.min(source_height);
+        let x = (source_width - edge) / 2;
+        let y = (source_height - edge) / 2;
+        source_image.crop_imm(x, y, edge, edge)
+    };
+
+    let icon_image = if square_image.width() > PORTAL_NOTIFICATION_ICON_MAX_EDGE {
+        square_image.resize_exact(
+            PORTAL_NOTIFICATION_ICON_MAX_EDGE,
+            PORTAL_NOTIFICATION_ICON_MAX_EDGE,
+            image::imageops::FilterType::Lanczos3,
+        )
+    } else {
+        square_image
+    };
+    let icon_width = icon_image.width();
+    let icon_height = icon_image.height();
+
+    let mut png_buffer = Cursor::new(Vec::new());
+    icon_image
+        .write_to(&mut png_buffer, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode notification artwork PNG: {}", e))?;
+    let icon_bytes = png_buffer.into_inner();
+
+    if icon_bytes.len() > PORTAL_NOTIFICATION_ICON_MAX_BYTES {
+        return Err(format!(
+            "Notification icon too large after normalization: {} bytes (max {})",
+            icon_bytes.len(),
+            PORTAL_NOTIFICATION_ICON_MAX_BYTES
+        ));
+    }
+
+    log::debug!(
+        "Notification artwork normalized: {}x{} -> {}x{} ({} bytes)",
+        source_width,
+        source_height,
+        icon_width,
+        icon_height,
+        icon_bytes.len()
+    );
+
+    Ok(icon_bytes)
 }
 
 fn v2_format_notification_quality(bit_depth: Option<u32>, sample_rate: Option<f64>) -> String {
@@ -9396,51 +9451,6 @@ pub async fn v2_uncache_favorite_artist(
         .map_err(|e| RuntimeError::Internal(e))
 }
 
-// ==================== Desktop Notifications ====================
-
-/// Send a notification via org.freedesktop.Notifications D-Bus interface.
-/// Supports image-path hint for album artwork (not available in the XDG portal spec).
-async fn show_native_notification(
-    summary: &str,
-    body: &str,
-    image_path: Option<&std::path::Path>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let connection = zbus::Connection::session().await?;
-    let proxy: zbus::proxy::Proxy<'_> = zbus::proxy::Builder::new(&connection)
-        .destination("org.freedesktop.Notifications")?
-        .path("/org/freedesktop/Notifications")?
-        .interface("org.freedesktop.Notifications")?
-        .build()
-        .await?;
-
-    let mut hints: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> =
-        std::collections::HashMap::new();
-    if let Some(path) = image_path {
-        if let Some(path_str) = path.to_str() {
-            hints.insert("image-path", zbus::zvariant::Value::from(path_str));
-        }
-    }
-
-    // replaces_id=0 means don't replace; the daemon assigns an ID
-    let _: u32 = proxy
-        .call(
-            "Notify",
-            &(
-                "QBZ",                                   // app_name
-                0u32,                                    // replaces_id
-                "",                                      // app_icon (empty = use .desktop)
-                summary,                                 // summary
-                body,                                    // body
-                &[] as &[&str],                          // actions
-                hints,                                   // hints
-                4000i32,                                 // expire_timeout ms
-            ),
-        )
-        .await?;
-
-    Ok(())
-}
-
 // ==================== Remaining Legacy-Equivalent V2 Commands ====================
 
 #[tauri::command]
@@ -9476,34 +9486,38 @@ pub async fn v2_show_track_notification(
     }
 
     let body_text = lines.join("\n");
+    let mut notification = PortalNotification::new(&title)
+        .body(Some(body_text.as_str()));
 
-    let artwork_path = artwork_url
-        .as_deref()
-        .and_then(|url| v2_cache_notification_artwork(url).ok());
+    if let Some(ref url_str) = artwork_url {
+        let url_clone = url_str.clone();
+        let prepared = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+            let path = v2_cache_notification_artwork(&url_clone)?;
+            v2_prepare_notification_icon_bytes(&path)
+        }).await;
 
-    if ashpd::is_sandboxed() {
-        // Flatpak: use XDG portal (required by Flathub, no image-path support)
-        let mut notification = PortalNotification::new(&title)
-            .body(Some(body_text.as_str()));
-        if let Some(ref path) = artwork_path {
-            if let Ok(bytes) = std::fs::read(path) {
-                notification = notification.icon(Icon::Bytes(bytes));
+        match prepared {
+            Ok(Ok(icon_bytes)) => {
+                log::info!("Notification artwork prepared: {} bytes", icon_bytes.len());
+                notification = notification.icon(Icon::Bytes(icon_bytes));
             }
-        }
-        match NotificationProxy::new().await {
-            Ok(proxy) => {
-                if let Err(e) = proxy.add_notification("track-now-playing", notification).await {
-                    log::warn!("Could not show notification via XDG portal: {}", e);
-                }
+            Ok(Err(e)) => {
+                log::warn!("Could not prepare notification artwork icon: {}", e);
             }
             Err(e) => {
-                log::warn!("XDG notification portal unavailable: {}", e);
+                log::warn!("Notification artwork preparation task failed: {}", e);
             }
         }
-    } else {
-        // Native: use org.freedesktop.Notifications directly (supports image-path hint)
-        if let Err(e) = show_native_notification(&title, &body_text, artwork_path.as_deref()).await {
-            log::warn!("Could not show notification: {}", e);
+    }
+
+    match NotificationProxy::new().await {
+        Ok(proxy) => {
+            if let Err(e) = proxy.add_notification("track-now-playing", notification).await {
+                log::warn!("Could not show notification via XDG portal: {}", e);
+            }
+        }
+        Err(e) => {
+            log::warn!("XDG notification portal unavailable: {}", e);
         }
     }
 
