@@ -10614,7 +10614,7 @@ fn v2_purchase_target_path(
     ext: &str,
 ) -> PathBuf {
     let artist_dir = crate::offline_cache::metadata::sanitize_filename(artist_name);
-    let album_dir = crate::offline_cache::metadata::sanitize_filename(album_title);
+    let album_clean = crate::offline_cache::metadata::sanitize_filename(album_title);
     let title_clean = crate::offline_cache::metadata::sanitize_filename(track_title);
 
     let file_name = if track_number > 0 {
@@ -10623,13 +10623,18 @@ fn v2_purchase_target_path(
         format!("{}.{}", title_clean, ext)
     };
 
-    let mut path = PathBuf::from(destination)
+    // Embed quality in album folder name: "Album [FLAC][24-bit,96kHz]"
+    let album_dir = if !quality_dir.is_empty() {
+        let quality_clean = crate::offline_cache::metadata::sanitize_filename(quality_dir);
+        format!("{} {}", album_clean, quality_clean)
+    } else {
+        album_clean
+    };
+
+    PathBuf::from(destination)
         .join(artist_dir)
-        .join(album_dir);
-    if !quality_dir.is_empty() {
-        path = path.join(crate::offline_cache::metadata::sanitize_filename(quality_dir));
-    }
-    path.join(file_name)
+        .join(album_dir)
+        .join(file_name)
 }
 
 fn v2_apply_purchase_download_flags(
@@ -11000,7 +11005,7 @@ pub async fn v2_purchases_get_formats(
     if album.hires && album.maximum_sampling_rate.unwrap_or(0.0) > 96.0 {
         formats.push(V2PurchaseFormatOption {
             id: 27,
-            label: "FLAC 24-bit / 192 kHz".to_string(),
+            label: "[FLAC][24-bit,192kHz]".to_string(),
             bit_depth: Some(24),
             sampling_rate: Some(192.0),
         });
@@ -11009,7 +11014,7 @@ pub async fn v2_purchases_get_formats(
     if album.hires {
         formats.push(V2PurchaseFormatOption {
             id: 7,
-            label: "FLAC 24-bit / 96 kHz".to_string(),
+            label: "[FLAC][24-bit,96kHz]".to_string(),
             bit_depth: Some(24),
             sampling_rate: Some(96.0),
         });
@@ -11017,14 +11022,14 @@ pub async fn v2_purchases_get_formats(
 
     formats.push(V2PurchaseFormatOption {
         id: 6,
-        label: "FLAC 16-bit / 44.1 kHz".to_string(),
+        label: "[FLAC][16-bit,44.1kHz]".to_string(),
         bit_depth: Some(16),
         sampling_rate: Some(44.1),
     });
 
     formats.push(V2PurchaseFormatOption {
         id: 5,
-        label: "MP3 320 kbps".to_string(),
+        label: "[MP3][320kbps]".to_string(),
         bit_depth: None,
         sampling_rate: None,
     });

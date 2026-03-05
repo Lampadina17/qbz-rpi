@@ -81,25 +81,14 @@ export function startAlbumDownload(
 
 /**
  * Extract the album-level folder from a downloaded file path.
- * Download structure: destination/artist/album/[qualityDir/]track.ext
- * We want: destination/artist/album/
+ * Download structure: destination/artist/album [quality]/track.ext
+ * We want: destination/artist/album [quality]/
  */
-function albumFolderFromFilePath(filePath: string, hasQualityDir: boolean): string {
-  // Remove filename
+function albumFolderFromFilePath(filePath: string): string {
+  // Remove filename to get the album directory
   let lastSep = filePath.lastIndexOf('/');
   if (lastSep < 0) lastSep = filePath.lastIndexOf('\\');
-  let dir = lastSep >= 0 ? filePath.substring(0, lastSep) : filePath;
-
-  // If there's a quality subdirectory, go up one more level
-  if (hasQualityDir) {
-    let prevSep = dir.lastIndexOf('/');
-    if (prevSep < 0) prevSep = dir.lastIndexOf('\\');
-    if (prevSep >= 0) {
-      dir = dir.substring(0, prevSep);
-    }
-  }
-
-  return dir;
+  return lastSep >= 0 ? filePath.substring(0, lastSep) : filePath;
 }
 
 async function executeAlbumDownload(
@@ -144,7 +133,7 @@ async function executeAlbumDownload(
       // so "Add to Library" adds only this album, not the entire root.
       if (!albumFolderResolved) {
         albumFolderResolved = true;
-        const albumFolder = albumFolderFromFilePath(filePath, qualityDir.length > 0);
+        const albumFolder = albumFolderFromFilePath(filePath);
         updateAlbumState(albumId, (state) => ({
           ...state,
           destination: albumFolder,

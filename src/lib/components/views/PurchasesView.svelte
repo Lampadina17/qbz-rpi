@@ -436,6 +436,7 @@
       formatPickerAnchor = { top: rect.bottom + 4, right: window.innerWidth - rect.right };
     } catch (err) {
       console.error('Track download error:', err);
+      showToast($t('purchases.errors.downloadFailed'), 'error');
     }
   }
 
@@ -1865,7 +1866,7 @@
   }
 
   .track-row.downloaded {
-    opacity: 0.6;
+    opacity: 0.75;
   }
 
   /* Format picker popup */

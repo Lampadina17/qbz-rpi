@@ -1719,7 +1719,8 @@
     "regionNotice": "Die Verfügbarkeit von Käufen hängt von deinem Qobuz-Konto und deiner Region ab. Wenn es nicht verfügbar ist, kann das erwartet sein.",
     "errors": {
       "noAlbum": "Download nicht moeglich: Titel hat kein zugehoeriges Album.",
-      "noFormats": "Keine Download-Formate fuer diesen Titel verfuegbar."
+      "noFormats": "Keine Download-Formate fuer diesen Titel verfuegbar.",
+      "downloadFailed": "Download konnte nicht gestartet werden. Bitte erneut versuchen."
     }
   },
   "playlistManager": {
