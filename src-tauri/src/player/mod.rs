@@ -2159,13 +2159,8 @@ impl Player {
                                 }
                             };
 
-                            // Only Rodio supports sink queueing
-                            if engine.is_alsa_direct() {
-                                log::info!("Gapless: ALSA Direct backend, cannot queue — ignoring PlayNext for track {}", track_id);
-                                return;
-                            }
-
-                            // Verify format compatibility (same sample rate and channels)
+                            // Bit-perfect has priority: reject gapless if format changes
+                            // (different sample rate/channels requires stream recreation)
                             if let (Some(cur_sr), Some(cur_ch)) =
                                 (*current_sample_rate, *current_channels)
                             {

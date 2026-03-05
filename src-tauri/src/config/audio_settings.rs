@@ -41,8 +41,8 @@ pub struct AudioSettings {
     /// Target loudness in LUFS for normalization.
     /// Common values: -14.0 (Spotify/YouTube), -18.0 (audiophile), -23.0 (EBU broadcast)
     pub normalization_target_lufs: f32,
-    /// When true, tracks with the same format are cross-faded seamlessly via Rodio Sink queueing.
-    /// Only works with cached tracks on Rodio backend (not ALSA Direct or streaming).
+    /// When true, consecutive same-format tracks play without gap.
+    /// Works on Rodio (PipeWire/Pulse) and ALSA Direct backends. Requires cached tracks.
     pub gapless_enabled: bool,
     /// When true, force PipeWire clock.force-quantum alongside clock.force-rate for bit-perfect.
     /// Reset both to 0 on stop. PipeWire-only, requires dac_passthrough.
@@ -71,7 +71,7 @@ impl Default for AudioSettings {
             device_sample_rate_limits: HashMap::new(), // Per-device limits (empty = no limit)
             normalization_enabled: false, // Off by default — preserves bit-perfect pipeline
             normalization_target_lufs: -14.0, // Spotify/YouTube standard
-            gapless_enabled: false, // Off by default — user opts in
+            gapless_enabled: true, // On by default — works for same-format tracks on all backends
             pw_force_bitperfect: false, // Off by default — experimental PipeWire feature
             sync_audio_on_startup: false, // Off by default — opt-in for stale-settings edge case
         }
