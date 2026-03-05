@@ -36,8 +36,8 @@
     onOpenContainingFolder?: () => void;
     onReDownloadAlbum?: () => void;
     downloadStateVersion?: number;
-    /** Source badge for local library: 'user' | 'qobuz_download' | 'plex' */
-    sourceBadge?: 'user' | 'qobuz_download' | 'plex';
+    /** Source badge for local library: 'user' | 'qobuz_download' | 'qobuz_purchase' | 'plex' */
+    sourceBadge?: 'user' | 'qobuz_download' | 'qobuz_purchase' | 'plex';
     artistId?: number;
     onArtistClick?: (artistId: number) => void;
   }
@@ -285,12 +285,15 @@
       <div
         class="source-badge"
         class:local-badge={sourceBadge === 'user'}
-        title={sourceBadge === 'user' ? 'Local file' : sourceBadge === 'plex' ? 'Plex library' : 'Qobuz offline'}
+        class:purchase-badge={sourceBadge === 'qobuz_purchase'}
+        title={sourceBadge === 'user' ? 'Local file' : sourceBadge === 'plex' ? 'Plex library' : sourceBadge === 'qobuz_purchase' ? 'Qobuz purchase' : 'Qobuz offline'}
       >
         {#if sourceBadge === 'user'}
           <HardDrive size={14} />
         {:else if sourceBadge === 'plex'}
           <img src="/plex-logo.svg" alt="Plex" class="qobuz-badge-icon plex-logo-icon" />
+        {:else if sourceBadge === 'qobuz_purchase'}
+          <img src="/qobuz-logo-filled.svg" alt="Qobuz purchase" class="qobuz-badge-icon" />
         {:else}
           <img src="/qobuz-logo-filled.svg" alt="Qobuz" class="qobuz-badge-icon" />
         {/if}
@@ -411,6 +414,17 @@
     background: rgba(0, 0, 0, 0.7);
     border-radius: 4px;
     backdrop-filter: blur(4px);
+  }
+
+  .source-badge.purchase-badge {
+    background: rgba(30, 20, 0, 0.85);
+    border-radius: 4px;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(234, 179, 8, 0.5);
+  }
+
+  .source-badge.purchase-badge .qobuz-badge-icon {
+    filter: brightness(0) saturate(100%) invert(75%) sepia(80%) saturate(500%) hue-rotate(10deg) brightness(105%) contrast(90%);
   }
 
   .source-badge .qobuz-badge-icon {

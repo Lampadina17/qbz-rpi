@@ -324,7 +324,7 @@
                 onPlayNext={() => onAlbumQueueNext(album)}
                 onPlayLater={() => onAlbumQueueLater(album)}
                 onclick={() => onAlbumClick(album)}
-                sourceBadge={showSourceBadge ? (album.source === 'plex' ? 'plex' : (album.source === 'qobuz_download' ? 'qobuz_download' : 'user')) : undefined}
+                sourceBadge={showSourceBadge ? (album.source === 'plex' ? 'plex' : album.source === 'qobuz_purchase' ? 'qobuz_purchase' : album.source === 'qobuz_download' ? 'qobuz_download' : 'user') : undefined}
               />
             {/each}
           </div>

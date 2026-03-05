@@ -3976,7 +3976,7 @@
                         onPlayNext={() => handleAlbumQueueNextFromGrid(album)}
                         onPlayLater={() => handleAlbumQueueLaterFromGrid(album)}
                         onclick={() => handleAlbumClick(album)}
-                        sourceBadge={album.source === 'plex' ? 'plex' : (album.source === 'qobuz_download' ? 'qobuz_download' : 'user')}
+                        sourceBadge={album.source === 'plex' ? 'plex' : album.source === 'qobuz_purchase' ? 'qobuz_purchase' : album.source === 'qobuz_download' ? 'qobuz_download' : 'user'}
                       />
                     {/each}
                   </div>
