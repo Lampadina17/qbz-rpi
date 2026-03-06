@@ -118,7 +118,17 @@ chmod +x QBZ.AppImage
 
 ### DEB (Debian/Ubuntu/Mint/Pop!_OS/Zorin)
 
-Download the `.deb` from [Releases](https://github.com/vicrodh/qbz/releases).
+**APT Repository (recommended):**
+
+```bash
+curl -fsSL https://vicrodh.github.io/qbz-apt/qbz-archive-keyring.gpg | sudo tee /usr/share/keyrings/qbz-archive-keyring.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/qbz-archive-keyring.gpg arch=$(dpkg --print-architecture)] https://vicrodh.github.io/qbz-apt stable main" | sudo tee /etc/apt/sources.list.d/qbz.list
+sudo apt update && sudo apt install qbz
+```
+
+Updates are automatic via `sudo apt update && sudo apt upgrade qbz`.
+
+**Manual install:** Download the `.deb` from [Releases](https://github.com/vicrodh/qbz/releases).
 
 ```bash
 sudo apt install ./qbz_*.deb
