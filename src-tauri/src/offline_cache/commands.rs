@@ -11,6 +11,7 @@ use crate::offline_cache::metadata::{
     embed_artwork, fetch_complete_metadata, organize_cached_file, save_album_artwork,
     write_flac_tags,
 };
+use crate::library::MetadataExtractor;
 use crate::offline_cache::OfflineCacheState;
 
 /// Post-process a cached track: fetch metadata, tag FLAC, embed artwork, organize files
@@ -876,7 +877,16 @@ pub async fn sync_offline_cache_to_library(
                     already_present += 1;
                 }
                 Ok(false) => {
-                    // Insert into library with basic metadata
+                    // Extract track/disc number from file tags
+                    let (track_num, disc_num) = match MetadataExtractor::extract(std::path::Path::new(&track.file_path)) {
+                        Ok(meta) => (meta.track_number, meta.disc_number),
+                        Err(e) => {
+                            log::warn!("Could not extract metadata from {}: {}", track.file_path, e);
+                            (None, None)
+                        }
+                    };
+
+                    // Insert into library with metadata from file tags
                     match library_db.insert_qobuz_cached_track_direct(
                         track.track_id,
                         &track.title,
@@ -886,6 +896,8 @@ pub async fn sync_offline_cache_to_library(
                         &track.file_path,
                         track.bit_depth,
                         track.sample_rate,
+                        track_num,
+                        disc_num,
                     ) {
                         Ok(_) => {
                             log::info!(

@@ -3250,7 +3250,7 @@
           {/if}
           {#each section.tracks as track, index (track.id)}
             <TrackRow
-              number={track.track_number ?? index + 1}
+              number={track.track_number || index + 1}
               title={track.title}
               artist={track.artist !== selectedAlbum?.artist ? track.artist : undefined}
               duration={formatDuration(track.duration_secs)}

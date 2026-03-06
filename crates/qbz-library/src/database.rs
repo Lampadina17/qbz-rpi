@@ -3348,6 +3348,8 @@ impl LibraryDatabase {
         file_path: &str,
         bit_depth: Option<u32>,
         sample_rate: Option<f64>,
+        track_number: Option<u32>,
+        disc_number: Option<u32>,
     ) -> Result<(), LibraryError> {
         use std::time::SystemTime;
 
@@ -3378,8 +3380,8 @@ impl LibraryDatabase {
                 artist,
                 album.unwrap_or("Unknown Album"),
                 artist, // Use artist as album_artist for proper grouping
-                0, // track_number - will be updated if metadata is available
-                None::<u32>, // disc_number
+                track_number.map(|v| v as i64),
+                disc_number.map(|v| v as i64),
                 None::<u32>, // year
                 duration_secs as i64,
                 "flac", // Default format for downloads
