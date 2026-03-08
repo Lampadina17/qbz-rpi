@@ -64,6 +64,17 @@ impl RecoStoreDb {
                 CREATE INDEX IF NOT EXISTS idx_reco_events_artist ON reco_events(artist_id);
                 CREATE INDEX IF NOT EXISTS idx_reco_events_created ON reco_events(created_at);
 
+                -- Composite indexes for GROUP BY + ORDER BY queries in get_home_seeds
+                CREATE INDEX IF NOT EXISTS idx_reco_events_play_albums
+                    ON reco_events(event_type, album_id, created_at DESC)
+                    WHERE album_id IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS idx_reco_events_play_tracks
+                    ON reco_events(event_type, track_id, created_at DESC)
+                    WHERE track_id IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS idx_reco_events_play_artists
+                    ON reco_events(event_type, artist_id, created_at DESC)
+                    WHERE artist_id IS NOT NULL;
+
                 CREATE TABLE IF NOT EXISTS reco_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     score_type TEXT NOT NULL,
@@ -79,6 +90,10 @@ impl RecoStoreDb {
                 CREATE INDEX IF NOT EXISTS idx_reco_scores_track ON reco_scores(track_id);
                 CREATE INDEX IF NOT EXISTS idx_reco_scores_album ON reco_scores(album_id);
                 CREATE INDEX IF NOT EXISTS idx_reco_scores_artist ON reco_scores(artist_id);
+
+                -- Composite index for scored lookups (score_type + item_type + ORDER BY score)
+                CREATE INDEX IF NOT EXISTS idx_reco_scores_lookup
+                    ON reco_scores(score_type, item_type, score DESC);
                 "#,
             )
             .map_err(|e| format!("Failed to initialize reco database: {}", e))?;
