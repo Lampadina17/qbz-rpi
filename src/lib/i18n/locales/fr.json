@@ -282,7 +282,8 @@
     "customImageSet": "Image de l'artiste mise à jour",
     "customImageRemoved": "Image personnalisée supprimée",
     "customImageError": "Erreur lors de la mise à jour de l'image",
-    "imageSaved": "Image de l'artiste enregistrée"
+    "imageSaved": "Image de l'artiste enregistrée",
+    "youMayAlsoLike": "VOUS AIMEREZ AUSSI"
   },
   "sort": {
     "nameAZ": "Nom (A-Z)",

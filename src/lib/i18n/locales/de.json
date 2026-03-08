@@ -282,7 +282,8 @@
     "customImageSet": "Künstlerbild aktualisiert",
     "customImageRemoved": "Eigenes Künstlerbild entfernt",
     "customImageError": "Fehler beim Aktualisieren des Künstlerbilds",
-    "imageSaved": "Künstlerbild gespeichert"
+    "imageSaved": "Künstlerbild gespeichert",
+    "youMayAlsoLike": "DAS KÖNNTE DIR AUCH GEFALLEN"
   },
   "sort": {
     "nameAZ": "Name (A-Z)",

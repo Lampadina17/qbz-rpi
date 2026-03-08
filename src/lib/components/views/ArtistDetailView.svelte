@@ -245,6 +245,18 @@
   let mbRelationshipsLoading = $state(false);
   let mbArtistMbid = $state<string | null>(null);
   let mbAvailable = $state(true); // Assume available until proven otherwise
+
+  // Discovery: "You may also like" (ListenBrainz)
+  interface DiscoveryArtist {
+    mbid: string;
+    name: string;
+    normalizedName: string;
+    affinityScore: number;
+    similarityPercent: number;
+    qobuzId?: number;
+  }
+  let discoveryArtists = $state<DiscoveryArtist[]>([]);
+  let discoveryLoading = $state(false);
   let artistDetailEl = $state<HTMLDivElement | null>(null);
   let aboutSection = $state<HTMLDivElement | null>(null);
   let topTracksSection = $state<HTMLDivElement | null>(null);
@@ -865,12 +877,36 @@
         groups: relationships.groups || [],
         collaborators: relationships.collaborators || []
       };
+      // Trigger discovery loading now that we have the MBID
+      void loadDiscoveryArtists();
     } catch (err) {
       console.error('Failed to load MusicBrainz relationships:', err);
       mbAvailable = false;
       mbRelationships = null;
     } finally {
       mbRelationshipsLoading = false;
+    }
+  }
+
+  // Load "You may also like" discovery artists from ListenBrainz
+  async function loadDiscoveryArtists() {
+    if (!mbArtistMbid || !mbAvailable) return;
+
+    discoveryLoading = true;
+    discoveryArtists = [];
+
+    try {
+      const similarNames = similarArtists.map(sa => sa.name);
+      const results = await invoke<DiscoveryArtist[]>('v2_get_discovery_artists', {
+        seedMbid: mbArtistMbid,
+        similarArtistNames: similarNames
+      });
+      discoveryArtists = results || [];
+    } catch (err) {
+      console.error('Failed to load discovery artists:', err);
+      discoveryArtists = [];
+    } finally {
+      discoveryLoading = false;
     }
   }
 
@@ -1787,6 +1823,10 @@
     </div>
   {/if}
 
+  <!-- Body: content sections + optional network sidebar in flex row -->
+  <div class="artist-body">
+  <div class="artist-sections">
+
   <!-- Top Tracks Section -->
   {#if topTracks.length > 0 || tracksLoading}
     <div class="top-tracks-section section-anchor" bind:this={topTracksSection}>
@@ -2497,8 +2537,11 @@
     </div>
   {/if}
 
-  <!-- Artist Network Sidebar -->
+  </div><!-- end artist-sections -->
+
+  <!-- Artist Network Sidebar (sticky, pushes content) -->
   {#if showNetworkSidebar}
+    <div class="network-sidebar-column">
     <aside class="network-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-header-icon">
@@ -2626,10 +2669,36 @@
             </div>
           </section>
         {/if}
+
+        <!-- You may also like (ListenBrainz discovery) -->
+        {#if mbAvailable && (discoveryLoading || discoveryArtists.length > 0)}
+          <section class="sidebar-section">
+            <h4 class="section-label">{$t('artist.youMayAlsoLike')}</h4>
+            <div class="section-items">
+              {#if discoveryLoading}
+                <span class="placeholder-text">{$t('actions.loading')}</span>
+              {:else}
+                {#each discoveryArtists as disc}
+                  <button
+                    class="sidebar-artist-link discovery-link"
+                    onclick={() => disc.qobuzId && onTrackGoToArtist?.(disc.qobuzId)}
+                    title="{disc.name} — {disc.similarityPercent}%"
+                  >
+                    <User size={12} />
+                    <span class="discovery-name">{disc.name}</span>
+                    <span class="discovery-score">{disc.similarityPercent}%</span>
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          </section>
+        {/if}
       </div>
     </aside>
+    </div><!-- end network-sidebar-column -->
   {/if}
-</div>
+  </div><!-- end artist-body -->
+</div><!-- end artist-detail -->
 
 <ImageLightbox
   isOpen={lightboxOpen}
@@ -2680,29 +2749,45 @@
     padding-top: 0;
     padding-left: 18px;
     padding-right: 8px;
-    padding-bottom: 100px;
+    padding-bottom: 0;
     overflow-y: auto;
     position: relative;
   }
 
-  /* Network Sidebar - matches LyricsSidebar dimensions */
-  .network-sidebar {
-    position: fixed;
-    top: 32px;
-    bottom: 104px;
-    right: 0;
-    width: 340px;
+  .artist-body {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .artist-sections {
+    flex: 1;
+    min-width: 0;
+    padding-bottom: 100px; /* bottom margin lives here so sidebar column covers it */
+  }
+
+  /* Network Sidebar column - stretches full height, holds background */
+  .network-sidebar-column {
+    width: 300px;
+    min-width: 300px;
     background: var(--bg-secondary);
     border-left: 1px solid var(--bg-tertiary);
-    z-index: 100;
-    display: flex;
-    flex-direction: column;
+    margin-top: -24px; /* pull up flush against jump-nav (covers its margin-bottom) */
+    margin-left: 16px;
+    margin-right: -8px; /* compensate for artist-detail padding-right */
     animation: slideIn 200ms ease-out;
   }
 
-  /* Adjust sidebar when title bar is hidden */
+  /* Network Sidebar - sticky inside column, respects jump-nav */
+  .network-sidebar {
+    position: sticky;
+    top: 44px; /* below the sticky jump-nav */
+    height: calc(100vh - 180px); /* viewport - titlebar(32) - nowplaying(104) - jump-nav(44) */
+    display: flex;
+    flex-direction: column;
+  }
+
   :global(.app.no-titlebar) .network-sidebar {
-    top: 0;
+    height: calc(100vh - 148px); /* no titlebar: viewport - nowplaying(104) - jump-nav(44) */
   }
 
   @keyframes slideIn {
@@ -2838,6 +2923,25 @@
     color: var(--text-primary);
   }
 
+  .sidebar-artist-link.discovery-link {
+    justify-content: flex-start;
+  }
+
+  .discovery-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .discovery-score {
+    font-size: 10px;
+    color: var(--accent-primary);
+    font-weight: 600;
+    flex-shrink: 0;
+    opacity: 0.8;
+  }
 
   .relationship-group {
     display: flex;

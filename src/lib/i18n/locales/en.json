@@ -294,7 +294,8 @@
     "customImageSet": "Artist image updated",
     "customImageRemoved": "Custom artist image removed",
     "customImageError": "Failed to update artist image",
-    "imageSaved": "Artist image saved"
+    "imageSaved": "Artist image saved",
+    "youMayAlsoLike": "YOU MAY ALSO LIKE"
   },
   "sort": {
     "nameAZ": "Name (A-Z)",
