@@ -1032,7 +1032,13 @@
       "factoryResetButton": "Supprimer toutes les données",
       "factoryResetFinalConfirm": "Êtes-vous absolument sûr ? Cela supprimera toutes les données de l'application, y compris vos identifiants, paramètres, caches et bibliothèque hors ligne. Cette action est irréversible.",
       "factoryResetConfirmButton": "Oui, tout supprimer",
-      "factoryResetError": "Échec de la suppression des données de l'application : {error}"
+      "factoryResetError": "Échec de la suppression des données de l'application : {error}",
+      "imageCacheEnabled": "Cache d'images",
+      "imageCacheEnabledDesc": "Mettre en cache localement les images d'albums et d'artistes Qobuz pour un chargement plus rapide",
+      "imageCacheMaxSize": "Taille maximale du cache d'images",
+      "imageCacheFiles": "images",
+      "imageCacheClear": "Vider le cache d'images",
+      "imageCacheClearDesc": "Supprimer toutes les images Qobuz mises en cache du disque"
     },
     "developer": {
       "title": "Mode Développeur",

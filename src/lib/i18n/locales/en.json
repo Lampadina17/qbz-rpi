@@ -1101,7 +1101,13 @@
       "factoryResetButton": "Delete All Data",
       "factoryResetFinalConfirm": "Are you absolutely sure? This will delete all application data including your credentials, settings, caches, and offline library. This action cannot be undone.",
       "factoryResetConfirmButton": "Yes, delete everything",
-      "factoryResetError": "Failed to delete application data: {error}"
+      "factoryResetError": "Failed to delete application data: {error}",
+      "imageCacheEnabled": "Image Cache",
+      "imageCacheEnabledDesc": "Cache Qobuz album and artist images locally for faster loading",
+      "imageCacheMaxSize": "Image Cache Size Limit",
+      "imageCacheFiles": "images",
+      "imageCacheClear": "Clear Image Cache",
+      "imageCacheClearDesc": "Remove all cached Qobuz images from disk"
     },
     "developer": {
       "title": "Developer Mode",

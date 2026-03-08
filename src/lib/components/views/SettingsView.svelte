@@ -258,6 +258,12 @@
   let artworkCacheStats = $state<{ artwork_cache_bytes: number; thumbnails_cache_bytes: number; artwork_file_count: number; thumbnail_file_count: number } | null>(null);
   let isClearingAllCaches = $state(false);
 
+  // Image cache state (Qobuz CDN images)
+  let imageCacheEnabled = $state(true);
+  let imageCacheMaxSizeMb = $state(200);
+  let imageCacheStats = $state<{ total_bytes: number; file_count: number } | null>(null);
+  let isClearingImageCache = $state(false);
+
   // Reset & factory reset state
   let isResettingAudio = $state(false);
   let factoryResetConfirmed = $state(false);
@@ -1334,6 +1340,10 @@
 
     // Load artwork cache stats
     loadArtworkCacheStats();
+
+    // Load image cache settings and stats
+    loadImageCacheSettings();
+    loadImageCacheStats();
 
     // Load audio devices first (includes PipeWire sinks), then settings
     // Also load backends and ALSA plugins
@@ -3252,6 +3262,58 @@
     }
   }
 
+  // Image cache functions
+  async function loadImageCacheSettings() {
+    try {
+      const settings = await invoke<{ enabled: boolean; max_size_mb: number }>('v2_get_image_cache_settings');
+      imageCacheEnabled = settings.enabled;
+      imageCacheMaxSizeMb = settings.max_size_mb;
+    } catch (err) {
+      console.error('Failed to load image cache settings:', err);
+    }
+  }
+
+  async function loadImageCacheStats() {
+    try {
+      imageCacheStats = await invoke<{ total_bytes: number; file_count: number }>('v2_get_image_cache_stats');
+    } catch (err) {
+      console.error('Failed to load image cache stats:', err);
+      imageCacheStats = null;
+    }
+  }
+
+  async function handleImageCacheEnabledChange(enabled: boolean) {
+    imageCacheEnabled = enabled;
+    try {
+      await invoke('v2_set_image_cache_enabled', { enabled });
+    } catch (err) {
+      console.error('Failed to update image cache enabled:', err);
+    }
+  }
+
+  async function handleImageCacheMaxSizeChange(maxSizeMb: number) {
+    imageCacheMaxSizeMb = maxSizeMb;
+    try {
+      await invoke('v2_set_image_cache_max_size', { maxSizeMb });
+      await loadImageCacheStats();
+    } catch (err) {
+      console.error('Failed to update image cache max size:', err);
+    }
+  }
+
+  async function handleClearImageCache() {
+    if (isClearingImageCache) return;
+    isClearingImageCache = true;
+    try {
+      await invoke('v2_clear_image_cache');
+      await loadImageCacheStats();
+    } catch (err) {
+      console.error('Failed to clear image cache:', err);
+    } finally {
+      isClearingImageCache = false;
+    }
+  }
+
   async function handleClearAllCaches() {
     if (isClearingAllCaches) return;
     isClearingAllCaches = true;
@@ -3263,7 +3325,8 @@
         invoke('v2_musicbrainz_clear_cache'),
         invoke('v2_clear_vector_store'),
         invoke('v2_library_clear_artwork_cache'),
-        invoke('v2_library_clear_thumbnails_cache')
+        invoke('v2_library_clear_thumbnails_cache'),
+        invoke('v2_clear_image_cache')
       ]);
       console.log('All caches cleared');
       // Reload all stats
@@ -3272,7 +3335,8 @@
         loadLyricsCacheStats(),
         loadMusicBrainzCacheStats(),
         loadVectorStoreStats(),
-        loadArtworkCacheStats()
+        loadArtworkCacheStats(),
+        loadImageCacheStats()
       ]);
     } catch (err) {
       console.error('Failed to clear all caches:', err);
@@ -5170,31 +5234,47 @@
     </div>
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">Artwork Thumbnails</span>
-        <small class="setting-note">
-          {#if artworkCacheStats}
-            {@const thumbCount = artworkCacheStats.thumbnail_file_count ?? 0}
-            {@const thumbBytes = artworkCacheStats.thumbnails_cache_bytes ?? 0}
-            {@const legacyCount = artworkCacheStats.artwork_file_count ?? 0}
-            {@const legacyBytes = artworkCacheStats.artwork_cache_bytes ?? 0}
-            {#if thumbCount > 0 || legacyCount > 0}
-              {#if thumbCount > 0}{thumbCount} thumbnails ({formatBytes(thumbBytes)}){/if}{#if thumbCount > 0 && legacyCount > 0}, {/if}{#if legacyCount > 0}{legacyCount} legacy files ({formatBytes(legacyBytes)}){/if}
-            {:else}
-              No cached artwork
-            {/if}
-          {:else}
-            -
-          {/if}
-        </small>
+        <span class="setting-label">{$t('settings.storage.imageCacheEnabled')}</span>
+        <span class="setting-desc">{$t('settings.storage.imageCacheEnabledDesc')}</span>
       </div>
-      <button
-        class="clear-btn"
-        onclick={handleClearArtworkCache}
-        disabled={isClearingArtwork || !artworkCacheStats || ((artworkCacheStats.thumbnails_cache_bytes ?? 0) === 0 && (artworkCacheStats.artwork_cache_bytes ?? 0) === 0)}
-      >
-        {isClearingArtwork ? $t('settings.storage.clearing') : $t('actions.clear')}
-      </button>
+      <Toggle enabled={imageCacheEnabled} onchange={() => handleImageCacheEnabledChange(!imageCacheEnabled)} />
     </div>
+    {#if imageCacheEnabled}
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">{$t('settings.storage.imageCacheMaxSize')}</span>
+          <small class="setting-note">
+            {#if imageCacheStats}
+              {imageCacheStats.file_count} {$t('settings.storage.imageCacheFiles')} ({formatBytes(imageCacheStats.total_bytes)})
+            {:else}
+              -
+            {/if}
+          </small>
+        </div>
+        <input
+          class="remote-control-input"
+          type="number"
+          min="50"
+          max="2000"
+          step="50"
+          value={imageCacheMaxSizeMb}
+          onchange={(e) => handleImageCacheMaxSizeChange(Number((e.target as HTMLInputElement).value))}
+        />
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">{$t('settings.storage.imageCacheClear')}</span>
+          <small class="setting-note">{$t('settings.storage.imageCacheClearDesc')}</small>
+        </div>
+        <button
+          class="clear-btn"
+          onclick={handleClearImageCache}
+          disabled={isClearingImageCache || !imageCacheStats || imageCacheStats.total_bytes === 0}
+        >
+          {isClearingImageCache ? $t('settings.storage.clearing') : $t('actions.clear')}
+        </button>
+      </div>
+    {/if}
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Clear All Caches</span>

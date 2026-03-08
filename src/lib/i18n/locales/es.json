@@ -1101,7 +1101,13 @@
       "factoryResetButton": "Eliminar Todos los Datos",
       "factoryResetFinalConfirm": "¿Estás absolutamente seguro? Esto eliminará todos los datos de la aplicación, incluyendo credenciales, configuración, cachés y biblioteca offline. Esta acción no se puede deshacer.",
       "factoryResetConfirmButton": "Sí, eliminar todo",
-      "factoryResetError": "Error al eliminar los datos de la aplicación: {error}"
+      "factoryResetError": "Error al eliminar los datos de la aplicación: {error}",
+      "imageCacheEnabled": "Caché de imágenes",
+      "imageCacheEnabledDesc": "Guardar imágenes de álbumes y artistas de Qobuz localmente para carga más rápida",
+      "imageCacheMaxSize": "Límite de caché de imágenes",
+      "imageCacheFiles": "imágenes",
+      "imageCacheClear": "Limpiar caché de imágenes",
+      "imageCacheClearDesc": "Eliminar todas las imágenes de Qobuz guardadas en disco"
     },
     "developer": {
       "title": "Modo Desarrollador",

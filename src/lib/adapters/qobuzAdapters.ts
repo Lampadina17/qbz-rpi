@@ -34,10 +34,46 @@ export function formatDuration(seconds: number): string {
 export const formatDurationMinutes = formatDuration;
 
 /**
- * Extract best available image from Qobuz image object
+ * Extract best available image from Qobuz image object (always picks largest)
  */
 export function getQobuzImage(image?: { large?: string; thumbnail?: string; small?: string }): string {
   return image?.large || image?.thumbnail || image?.small || '';
+}
+
+/** Image display sizes for context-aware selection */
+export type ImageSize = 'thumb' | 'small' | 'large';
+
+/**
+ * Pick the right Qobuz image URL for the display context.
+ * - 'thumb' (50px): queue rows, compact lists
+ * - 'small' (230px): grid cards, search results, sidebar
+ * - 'large' (600px): album/artist detail hero, lightbox
+ */
+export function getQobuzImageForSize(
+  image?: { large?: string; thumbnail?: string; small?: string },
+  size: ImageSize = 'small'
+): string {
+  if (!image) return '';
+  switch (size) {
+    case 'thumb':
+      return image.thumbnail || image.small || image.large || '';
+    case 'small':
+      return image.small || image.large || image.thumbnail || '';
+    case 'large':
+      return image.large || image.small || image.thumbnail || '';
+  }
+}
+
+/**
+ * Resize a Qobuz CDN image URL to a different size variant.
+ * Qobuz URLs follow: static.qobuz.com/images/covers/{hash}_{size}.jpg
+ * Supported sizes: 50, 230, 300, 600
+ */
+export function resizeQobuzUrl(url: string, targetSize: number): string {
+  if (!url) return url;
+  return url
+    .replace(/_\d+\.jpg$/, `_${targetSize}.jpg`)
+    .replace(/\/\d+x\d+\//, `/${targetSize}x${targetSize}/`);
 }
 
 /**
@@ -251,7 +287,7 @@ function isStudioAlbum(album: QobuzAlbum): boolean {
 }
 
 function toArtistAlbumSummary(album: QobuzAlbum): ArtistAlbumSummary {
-  const artwork = getQobuzImage(album.image);
+  const artwork = getQobuzImageForSize(album.image, 'small');
   const quality = formatQuality(
     album.hires_streamable,
     album.maximum_bit_depth,
@@ -283,7 +319,7 @@ function buildCompilationAlbums(tracks: QobuzTrack[] | undefined): ArtistAlbumSu
     compilations.push({
       id: album.id,
       title: album.title,
-      artwork: getQobuzImage(album.image),
+      artwork: getQobuzImageForSize(album.image, 'small'),
       year: undefined,
       quality: formatQuality(
         track.hires_streamable,
@@ -609,8 +645,7 @@ function pageReleaseToSummary(
     return null;
   }
 
-  const image = release.image;
-  const artwork = image?.large || image?.thumbnail || image?.small || '';
+  const artwork = getQobuzImageForSize(release.image, 'small');
   const hires = release.rights?.hires_streamable ?? false;
   const quality = formatQuality(
     hires,
@@ -713,11 +748,10 @@ export function convertPageArtist(response: PageArtistResponse): ArtistDetail {
       const album = track.album;
       if (!album?.id || seen.has(album.id)) continue;
       seen.add(album.id);
-      const albumImage = album.image;
       compilations.push({
         id: album.id,
         title: album.title,
-        artwork: albumImage?.large || albumImage?.thumbnail || albumImage?.small || '',
+        artwork: getQobuzImageForSize(album.image, 'small'),
         year: undefined,
         releaseDate: undefined,
         quality: formatQuality(
