@@ -361,6 +361,7 @@
     object-fit: cover;
     border-radius: inherit;
     z-index: 1;
+    transition: opacity 0.15s ease-in;
   }
 
   .artwork-placeholder {

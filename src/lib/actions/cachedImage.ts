@@ -4,8 +4,8 @@
  * Usage:
  *   <img use:cachedSrc={imageUrl} alt="..." />
  *
- * Loads the image through the backend cache. Shows nothing until resolved,
- * then sets the src attribute. Falls back to original URL on error.
+ * Hides the image until the cached URL is resolved, preventing
+ * broken image icons. The placeholder behind it remains visible.
  */
 
 import { getCachedImageUrl } from '$lib/services/imageCacheService';
@@ -13,21 +13,29 @@ import { getCachedImageUrl } from '$lib/services/imageCacheService';
 export function cachedSrc(node: HTMLImageElement, url: string | undefined) {
   let currentUrl = url;
 
+  // Hide until resolved so placeholder shows through
+  node.style.opacity = '0';
+  node.removeAttribute('src');
+
   async function resolve(imageUrl: string | undefined) {
     if (!imageUrl) {
-      node.src = '';
+      node.removeAttribute('src');
+      node.style.opacity = '0';
       return;
     }
 
+    node.style.opacity = '0';
+
     try {
       const resolved = await getCachedImageUrl(imageUrl);
-      // Only apply if still the current URL (avoid race conditions)
       if (imageUrl === currentUrl) {
         node.src = resolved;
+        node.style.opacity = '1';
       }
     } catch {
       if (imageUrl === currentUrl) {
-        node.src = imageUrl; // Fallback to original
+        node.src = imageUrl;
+        node.style.opacity = '1';
       }
     }
   }
