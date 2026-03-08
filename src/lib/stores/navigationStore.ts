@@ -1,9 +1,9 @@
 /**
  * Navigation State Store
  *
- * Manages view navigation and history.
- * Note: Selected album/artist data objects are kept in +page.svelte since they're
- * fetched data, but selectedPlaylistId is managed here as it's just an ID.
+ * Manages view navigation and history with per-item granularity.
+ * History entries carry an optional itemId so back/forward restores
+ * the exact page (e.g., a specific album, not just "album view").
  */
 
 export type ViewType =
@@ -39,10 +39,20 @@ export type ViewType =
   | 'topq';
 export type FavoritesTab = 'tracks' | 'albums' | 'artists' | 'playlists';
 
+// History entry: view + optional item identifier for granular back/forward
+export interface HistoryEntry {
+  view: ViewType;
+  itemId?: string | number;
+}
+
 // Navigation state
 let activeView: ViewType = 'home';
-let viewHistory: ViewType[] = ['home'];
-let forwardHistory: ViewType[] = [];
+let activeItemId: string | number | undefined = undefined;
+let viewHistory: HistoryEntry[] = [{ view: 'home' }];
+let forwardHistory: HistoryEntry[] = [];
+
+// Track whether the current navigation is a back/forward action
+let isBackForwardNavigation = false;
 
 // Scroll position memory — keyed by "viewType" or "viewType:itemId"
 const SCROLL_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -112,20 +122,29 @@ export function subscribe(listener: () => void): () => void {
 
 // ============ Navigation Actions ============
 
+function entriesEqual(a: HistoryEntry, b: HistoryEntry): boolean {
+  return a.view === b.view && a.itemId === b.itemId;
+}
+
 /**
- * Navigate to a view
+ * Navigate to a view, optionally with an item identifier for granular history.
  */
-export function navigateTo(view: ViewType): void {
-  if (view !== activeView) {
-    viewHistory = [...viewHistory, view];
+export function navigateTo(view: ViewType, itemId?: string | number): void {
+  const newEntry: HistoryEntry = { view, itemId };
+  const currentEntry = viewHistory[viewHistory.length - 1];
+
+  if (!entriesEqual(newEntry, currentEntry)) {
+    viewHistory = [...viewHistory, newEntry];
     forwardHistory = [];
     activeView = view;
+    activeItemId = itemId;
 
     const tab = getFavoritesTabFromView(view);
     if (tab) {
       lastFavoritesTab = tab;
     }
 
+    isBackForwardNavigation = false;
     notifyListeners();
   }
 }
@@ -136,14 +155,17 @@ export function navigateTo(view: ViewType): void {
  */
 export function goBack(): boolean {
   if (viewHistory.length > 1) {
-    const lastView = viewHistory[viewHistory.length - 1];
+    const lastEntry = viewHistory[viewHistory.length - 1];
     viewHistory = viewHistory.slice(0, -1);
-    forwardHistory = [...forwardHistory, lastView];
-    activeView = viewHistory[viewHistory.length - 1];
+    forwardHistory = [...forwardHistory, lastEntry];
+    const currentEntry = viewHistory[viewHistory.length - 1];
+    activeView = currentEntry.view;
+    activeItemId = currentEntry.itemId;
     const tab = getFavoritesTabFromView(activeView);
     if (tab) {
       lastFavoritesTab = tab;
     }
+    isBackForwardNavigation = true;
     notifyListeners();
     return true;
   }
@@ -156,14 +178,16 @@ export function goBack(): boolean {
  */
 export function goForward(): boolean {
   if (forwardHistory.length > 0) {
-    const nextView = forwardHistory[forwardHistory.length - 1];
+    const nextEntry = forwardHistory[forwardHistory.length - 1];
     forwardHistory = forwardHistory.slice(0, -1);
-    viewHistory = [...viewHistory, nextView];
-    activeView = nextView;
+    viewHistory = [...viewHistory, nextEntry];
+    activeView = nextEntry.view;
+    activeItemId = nextEntry.itemId;
     const tab = getFavoritesTabFromView(activeView);
     if (tab) {
       lastFavoritesTab = tab;
     }
+    isBackForwardNavigation = true;
     notifyListeners();
     return true;
   }
@@ -184,6 +208,22 @@ export function canGoForward(): boolean {
   return forwardHistory.length > 0;
 }
 
+/**
+ * Check if current navigation was triggered by back/forward.
+ * Consumers should call this right after receiving a navigation notification
+ * and reset it by calling clearBackForwardFlag().
+ */
+export function isBackForward(): boolean {
+  return isBackForwardNavigation;
+}
+
+/**
+ * Get the active item ID (set during back/forward navigation).
+ */
+export function getActiveItemId(): string | number | undefined {
+  return activeItemId;
+}
+
 // ============ Playlist Selection ============
 
 /**
@@ -197,7 +237,7 @@ export function selectPlaylist(playlistId: number): void {
   if (activeView === 'playlist' && previousId !== playlistId) {
     notifyListeners();
   } else {
-    navigateTo('playlist');
+    navigateTo('playlist', playlistId);
   }
 }
 
@@ -221,7 +261,7 @@ export function selectLocalAlbum(albumId: string): void {
   if (activeView === 'library-album' && previousId !== albumId) {
     notifyListeners();
   } else {
-    navigateTo('library-album');
+    navigateTo('library-album', albumId);
   }
 }
 
@@ -253,9 +293,10 @@ export function navigateToFavorites(tab?: FavoritesTab): void {
  */
 export function restoreView(view: ViewType): void {
   activeView = view;
-  viewHistory = ['home'];
+  activeItemId = undefined;
+  viewHistory = [{ view: 'home' }];
   if (view !== 'home') {
-    viewHistory.push(view);
+    viewHistory.push({ view });
   }
   forwardHistory = [];
   notifyListeners();
@@ -306,22 +347,26 @@ export function getActiveView(): ViewType {
 
 export interface NavigationState {
   activeView: ViewType;
-  viewHistory: ViewType[];
-  forwardHistory: ViewType[];
+  activeItemId?: string | number;
+  viewHistory: HistoryEntry[];
+  forwardHistory: HistoryEntry[];
   selectedPlaylistId: number | null;
   selectedLocalAlbumId: string | null;
   canGoBack: boolean;
   canGoForward: boolean;
+  isBackForward: boolean;
 }
 
 export function getNavigationState(): NavigationState {
   return {
     activeView,
+    activeItemId,
     viewHistory: [...viewHistory],
     forwardHistory: [...forwardHistory],
     selectedPlaylistId,
     selectedLocalAlbumId,
     canGoBack: viewHistory.length > 1,
-    canGoForward: forwardHistory.length > 0
+    canGoForward: forwardHistory.length > 0,
+    isBackForward: isBackForwardNavigation
   };
 }

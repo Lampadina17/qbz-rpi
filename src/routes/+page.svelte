@@ -148,12 +148,16 @@
     goForward as navGoForward,
     selectPlaylist,
     getNavigationState,
+    getActiveItemId,
+    isBackForward,
     getFavoritesTabFromView,
     getSelectedLocalAlbumId,
     isFavoritesView,
     restoreView,
     setRestoredPlaylistId,
     setRestoredLocalAlbumId,
+    saveScrollPosition,
+    getSavedScrollPosition,
     type ViewType,
     type NavigationState,
     type FavoritesTab
@@ -487,12 +491,15 @@
   let musicianModalData = $state<ResolvedMusician | null>(null);
   let isArtistAlbumsLoading = $state(false);
 
+  // Track current itemId for scroll position save on navigation
+  let currentNavItemId: string | number | undefined = undefined;
+
   // Purchase downloads state
   let selectedPurchaseAlbumId = $state<string | null>(null);
 
   function handlePurchaseAlbumClick(albumId: string) {
     selectedPurchaseAlbumId = albumId;
-    navigateTo('purchase-album');
+    navigateTo('purchase-album', albumId);
   }
 
   function waitForHomePaint(): Promise<void> {
@@ -703,8 +710,8 @@
   }
 
   // Navigation wrapper (keeps debug logging)
-  async function navigateTo(view: string) {
-    console.log('navigateTo called with:', view, 'current activeView:', activeView);
+  async function navigateTo(view: string, itemId?: string | number) {
+    console.log('navigateTo called with:', view, 'itemId:', itemId, 'current activeView:', activeView);
     if (view === 'favorites') {
       await loadFavoritesDefaultTab();
       navigateToFavorites(favoritesDefaultTab);
@@ -715,7 +722,43 @@
       triggerSearchFocus();
       return;
     }
-    navTo(view as ViewType);
+    navTo(view as ViewType, itemId);
+  }
+
+  /**
+   * Restore item data when navigating back/forward.
+   * Re-fetches the specific album/artist/playlist/label so the correct page is shown.
+   */
+  async function restoreItemFromHistory(view: ViewType, itemId: string | number) {
+    try {
+      switch (view) {
+        case 'album':
+          await handleAlbumClick(String(itemId));
+          break;
+        case 'artist':
+          await handleArtistClick(Number(itemId));
+          break;
+        case 'playlist':
+          selectedPlaylistId = Number(itemId);
+          selectPlaylist(Number(itemId));
+          break;
+        case 'label':
+        case 'label-releases':
+          selectedLabel = { id: Number(itemId), name: selectedLabel?.name || '' };
+          break;
+        case 'musician':
+          // Musician data is already in selectedMusician from the original navigation
+          break;
+        case 'purchase-album':
+          selectedPurchaseAlbumId = String(itemId);
+          break;
+        case 'library-album':
+          setRestoredLocalAlbumId(String(itemId));
+          break;
+      }
+    } catch (err) {
+      console.error('[Nav] Failed to restore item from history:', view, itemId, err);
+    }
   }
 
   // Effective search-in-titlebar: only when custom titlebar is shown AND user preference is 'titlebar'
@@ -754,7 +797,7 @@
       }
 
       selectedAlbum = converted;
-      navigateTo('album');
+      navTo('album', albumId);
       hideToast();
 
       // Fetch artist albums for "By the same artist" section (non-blocking)
@@ -834,7 +877,7 @@
       selectedArtist = convertPageArtist(response);
       artistTopTracks = response.top_tracks || [];
       artistSimilarArtists = response.similar_artists?.items || [];
-      navigateTo('artist');
+      navTo('artist', artistId);
       hideToast();
 
       // The artist/page endpoint sometimes omits EPs & Singles from its
@@ -896,12 +939,12 @@
 
   function handleLabelClick(labelId: number, labelName?: string) {
     selectedLabel = { id: labelId, name: labelName || '' };
-    navigateTo('label');
+    navigateTo('label', labelId);
   }
 
   function handleNavigateLabelReleases(labelId: number, labelName: string) {
     selectedLabel = { id: labelId, name: labelName };
-    navigateTo('label-releases');
+    navigateTo('label-releases', labelId);
   }
 
   /**
@@ -931,7 +974,7 @@
         case 'contextual':
           // Show full Musician Page
           selectedMusician = musician;
-          navigateTo('musician');
+          navigateTo('musician', musician.qobuz_artist_id ?? name);
           break;
 
         case 'weak':
@@ -1010,7 +1053,7 @@
           if (!isNaN(playlistId)) {
             requestFocus('playlist', context.id);
             selectedPlaylistId = playlistId;
-            navigateTo('playlist');
+            navigateTo('playlist', playlistId);
           }
           break;
 
@@ -3252,8 +3295,33 @@
     // Subscribe to navigation state changes
     const unsubscribeNav = subscribeNav(() => {
       const navState = getNavigationState();
+      const prevView = activeView;
+      const prevItemId = currentNavItemId;
+
+      // Save scroll position of the view we're leaving
+      if (prevView !== navState.activeView || prevItemId !== navState.activeItemId) {
+        saveScrollPosition(prevView, globalScrollTop, prevItemId);
+      }
+
       activeView = navState.activeView;
       selectedPlaylistId = navState.selectedPlaylistId;
+      currentNavItemId = navState.activeItemId;
+
+      // On back/forward navigation, reload the specific item from history
+      if (navState.isBackForward && navState.activeItemId != null) {
+        restoreItemFromHistory(navState.activeView, navState.activeItemId);
+      }
+
+      // Restore scroll position on back/forward
+      if (navState.isBackForward) {
+        const savedScroll = getSavedScrollPosition(navState.activeView, navState.activeItemId);
+        tick().then(() => {
+          if (activeScrollTarget) {
+            activeScrollTarget.scrollTop = savedScroll;
+            globalScrollTop = savedScroll;
+          }
+        });
+      }
     });
 
     // Subscribe to player state changes
