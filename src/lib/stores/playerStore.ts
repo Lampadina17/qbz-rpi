@@ -315,6 +315,14 @@ export function setQueueEnded(ended: boolean): void {
   queueEnded = ended;
 }
 
+/**
+ * Set visual-only current time (no backend seek). Used by session restore.
+ */
+export function setPlayerCurrentTime(time: number): void {
+  currentTime = time;
+  notifyListeners();
+}
+
 // ============ Playback Controls ============
 
 /**

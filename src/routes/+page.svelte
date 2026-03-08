@@ -176,6 +176,7 @@
     setVolume as playerSetVolume,
     stop as stopPlayback,
     setPendingSessionRestore,
+    setPlayerCurrentTime,
     startPolling,
     stopPolling,
     reset as resetPlayer,
@@ -2695,40 +2696,15 @@
 
     showToast($t('toast.welcomeUser', { values: { name: info.userName } }), 'success');
 
-    // Initialize per-user stores now that the backend session is active
+    // Initialize playback preferences first — session restore depends on this
     initOfflineCacheStates(); // has internal try/catch
     await initPlaybackPreferences().then(() => {
       sessionPersistEnabled = getCachedPreferences().persist_session;
       console.log('[Session] Persist session enabled:', sessionPersistEnabled);
     }).catch(err => console.debug('[PlaybackPrefs] Init deferred:', err));
-    initBlacklistStore().catch(err => console.debug('[Blacklist] Init deferred:', err));
-    initCustomArtistImageStore().catch(err => console.debug('[CustomArtistImages] Init deferred:', err));
-    initCustomAlbumCoverStore().catch(err => console.debug('[CustomAlbumCovers] Init deferred:', err));
-    refreshUpdatePreferences().catch(err => console.debug('[Updates] Prefs refresh deferred:', err));
 
-    // Load audio settings (normalization state) now that session is active
-    invoke<{ normalization_enabled: boolean }>('v2_get_audio_settings').then((settings) => {
-      normalizationEnabled = settings.normalization_enabled;
-    }).catch((err) => {
-      console.error('[AudioSettings] Failed to load:', err);
-    });
-
-    // Load favorites now that login is confirmed (sync with Qobuz)
-    loadFavorites();        // Track favorites
-    loadAlbumFavorites();   // Album favorites
-    loadArtistFavorites();  // Artist favorites
-
-    // Refresh offline status now that we're logged in
-    await refreshOfflineStatus();
-
-    // Train recommendation scores in background (fire-and-forget)
-    trainScores().then(() => {
-      console.log('[Reco] Scores trained after login');
-    }).catch(err => {
-      console.debug('[Reco] Score training failed:', err);
-    });
-
-    // Restore previous session if available (only when persist_session is enabled)
+    // Restore previous session EARLY (before network-heavy init) so the
+    // player bar shows the last track instantly instead of "No track playing"
     if (!sessionPersistEnabled) {
       console.log('[Session] Session persistence disabled, skipping restore');
     }
@@ -2788,9 +2764,13 @@
             samplingRate: track.sample_rate ?? undefined,
           });
 
-          // First play will load a fresh stream instead of seeking
-          setPendingSessionRestore(track.id, 0);
-          console.log(`[Session] Track ${track.id} restored visually (paused at 0:00)`);
+          // Show saved position in player bar; first play will seek to it
+          const savedPos = session.current_position_secs ?? 0;
+          if (savedPos > 0) {
+            setPlayerCurrentTime(savedPos);
+          }
+          setPendingSessionRestore(track.id, savedPos);
+          console.log(`[Session] Track ${track.id} restored visually (paused at ${savedPos}s)`);
         }
 
         console.log('[Session] Session restored successfully');
@@ -2803,6 +2783,34 @@
     } catch (err) {
       console.error('[Session] Failed to restore session:', err);
     }
+
+    // Continue with remaining store initialization (non-blocking for session)
+    initBlacklistStore().catch(err => console.debug('[Blacklist] Init deferred:', err));
+    initCustomArtistImageStore().catch(err => console.debug('[CustomArtistImages] Init deferred:', err));
+    initCustomAlbumCoverStore().catch(err => console.debug('[CustomAlbumCovers] Init deferred:', err));
+    refreshUpdatePreferences().catch(err => console.debug('[Updates] Prefs refresh deferred:', err));
+
+    // Load audio settings (normalization state) now that session is active
+    invoke<{ normalization_enabled: boolean }>('v2_get_audio_settings').then((settings) => {
+      normalizationEnabled = settings.normalization_enabled;
+    }).catch((err) => {
+      console.error('[AudioSettings] Failed to load:', err);
+    });
+
+    // Load favorites now that login is confirmed (sync with Qobuz)
+    loadFavorites();        // Track favorites
+    loadAlbumFavorites();   // Album favorites
+    loadArtistFavorites();  // Artist favorites
+
+    // Refresh offline status now that we're logged in
+    refreshOfflineStatus().catch(err => console.debug('[Offline] Status refresh deferred:', err));
+
+    // Train recommendation scores in background (fire-and-forget)
+    trainScores().then(() => {
+      console.log('[Reco] Scores trained after login');
+    }).catch(err => {
+      console.debug('[Reco] Score training failed:', err);
+    });
   }
 
   async function handleLogout() {
