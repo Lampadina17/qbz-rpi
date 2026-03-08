@@ -380,6 +380,8 @@
       homeSettings = getSettings();
       homeLimits = getSettings().limits;
       clearHomeCache();
+      // Reload data silently so changes apply immediately
+      loadHome({ showSkeletons: false });
     });
 
     const currentGenreIds = Array.from(getSelectedGenreIds());
