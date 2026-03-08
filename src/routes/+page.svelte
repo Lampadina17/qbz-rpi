@@ -500,7 +500,7 @@
   let isArtistAlbumsLoading = $state(false);
 
   // Track current itemId for scroll position save on navigation
-  let currentNavItemId: string | number | undefined = undefined;
+  let currentNavItemId = $state<string | number | undefined>(undefined);
 
   // Purchase downloads state
   let selectedPurchaseAlbumId = $state<string | null>(null);
