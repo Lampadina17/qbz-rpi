@@ -854,6 +854,35 @@ impl RecoStoreDb {
         Ok(())
     }
 
+    /// Get known artist names from the metadata cache.
+    /// Returns (qobuz_artist_id, name) pairs.
+    pub fn get_known_artist_names(&self, limit: u32) -> Result<Vec<(u64, String)>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+                SELECT artist_id, name
+                FROM reco_artist_meta
+                ORDER BY updated_at DESC
+                LIMIT ?
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare known artist names query: {}", e))?;
+
+        let rows = stmt
+            .query_map(params![limit], |row| {
+                Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| format!("Failed to query known artist names: {}", e))?;
+
+        let mut artists = Vec::new();
+        for row in rows {
+            artists
+                .push(row.map_err(|e| format!("Failed to read known artist name row: {}", e))?);
+        }
+        Ok(artists)
+    }
+
     /// Clear all meta caches so entries re-resolve with fresh image URLs.
     pub fn clear_meta_caches(&self) -> Result<(), String> {
         self.conn
