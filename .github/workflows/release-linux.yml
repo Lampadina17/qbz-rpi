@@ -158,3 +158,12 @@ jobs:
           files: dist/*
           prerelease: ${{ contains(steps.release.outputs.version, '-rc') }}
           make_latest: ${{ contains(steps.release.outputs.version, '-rc') && 'false' || 'true' }}
+
+      - name: Trigger APT repo update
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.APT_REPO_TOKEN }}
+          repository: vicrodh/qbz-apt
+          event-type: new-release
+          client-payload: '{"tag": "${{ github.ref_name }}"}'
