@@ -837,6 +837,22 @@
       artistSimilarArtists = response.similar_artists?.items || [];
       navigateTo('artist');
       hideToast();
+
+      // The artist/page endpoint sometimes omits EPs & Singles from its
+      // releases array. If they're missing, fetch them explicitly.
+      const hasEpGroup = (response.releases || []).some(
+        g => g.type === 'ep' || g.type === 'single'
+      );
+      if (!hasEpGroup && selectedArtist.epsSingles.length === 0) {
+        invoke<ReleasesGridResponse>('get_releases_grid', {
+          artistId, releaseType: 'ep', limit: 25, offset: 0
+        }).then(result => {
+          if (result.items.length > 0 && selectedArtist?.id === artistId) {
+            selectedArtist = appendPageReleases(selectedArtist, 'ep', result.items, result.has_more);
+            console.log(`[Artist] Backfilled ${result.items.length} EPs & Singles`);
+          }
+        }).catch(err => console.debug('[Artist] EP backfill failed:', err));
+      }
     } catch (err) {
       console.error('Failed to load artist:', err);
       showToast($t('toast.failedLoadArtist'), 'error');
