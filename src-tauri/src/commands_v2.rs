@@ -11551,8 +11551,7 @@ pub async fn v2_get_discovery_artists(
         return Ok(Vec::new());
     }
 
-    // Step 2: Call ListenBrainz lb-radio API
-    // Build a separate reqwest client for ListenBrainz (don't use MB rate limiter)
+    // Step 2: Call ListenBrainz Labs similar-artists API
     let version = env!("CARGO_PKG_VERSION");
     let user_agent = format!(
         "QBZ/{} (https://github.com/vicrodh/qbz; qbz@vicrodh.dev)",
@@ -11561,63 +11560,76 @@ pub async fn v2_get_discovery_artists(
 
     let lb_client = reqwest::Client::builder()
         .user_agent(&user_agent)
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| format!("Failed to build ListenBrainz HTTP client: {}", e))?;
 
-    let lb_url = format!(
-        "https://api.listenbrainz.org/1/lb-radio/artist/{}?mode=easy&max_similar_artists=15&max_recordings_per_artist=2&pop_begin=0&pop_end=100",
-        seedMbid
-    );
+    let lb_url = "https://labs.api.listenbrainz.org/similar-artists/json";
+    let lb_body = serde_json::json!([{
+        "artist_mbids": [seedMbid],
+        "algorithm": "session_based_days_7500_session_300_contribution_5_threshold_10_limit_100_filter_True_skip_30"
+    }]);
 
-    log::debug!("[Discovery] Calling ListenBrainz: {}", lb_url);
+    log::debug!("[Discovery] Calling ListenBrainz Labs: {}", lb_url);
 
     let lb_response = lb_client
-        .get(&lb_url)
+        .post(lb_url)
+        .json(&lb_body)
         .send()
         .await
-        .map_err(|e| format!("ListenBrainz request failed: {}", e))?;
+        .map_err(|e| format!("ListenBrainz Labs request failed: {}", e))?;
 
     if !lb_response.status().is_success() {
         let status = lb_response.status();
         let text = lb_response.text().await.unwrap_or_default();
         log::warn!(
-            "[Discovery] ListenBrainz API error {}: {}",
+            "[Discovery] ListenBrainz Labs API error {}: {}",
             status,
             text
         );
         return Ok(Vec::new());
     }
 
-    // Step 3: Parse response as HashMap<String, Vec<LbRadioRecording>>
-    let lb_data: HashMap<String, Vec<crate::listenbrainz::LbRadioRecording>> = lb_response
+    // Step 3: Parse response - array of similar artist entries
+    let lb_data: Vec<crate::listenbrainz::LbSimilarArtist> = lb_response
         .json()
         .await
         .map_err(|e| {
-            log::warn!("[Discovery] Failed to parse ListenBrainz response: {}", e);
-            format!("Failed to parse ListenBrainz response: {}", e)
+            log::warn!("[Discovery] Failed to parse ListenBrainz Labs response: {}", e);
+            format!("Failed to parse ListenBrainz Labs response: {}", e)
         })?;
 
     log::info!(
-        "[Discovery] ListenBrainz returned {} artist groups",
+        "[Discovery] ListenBrainz Labs returned {} similar artists",
         lb_data.len()
     );
 
-    // Step 4: Extract unique artists, aggregate listen counts per artist MBID
-    let mut artist_scores: HashMap<String, (String, f64)> = HashMap::new(); // mbid -> (name, total_score)
+    // Step 4: Find max score for normalization, then build candidate map
+    let max_score = lb_data
+        .iter()
+        .map(|a| a.score)
+        .fold(0.0_f64, f64::max);
 
-    for recordings in lb_data.values() {
-        for rec in recordings {
-            let entry = artist_scores
-                .entry(rec.similar_artist_mbid.clone())
-                .or_insert_with(|| (rec.similar_artist_name.clone(), 0.0));
-            entry.1 += rec.total_listen_count as f64;
+    if max_score <= 0.0 {
+        log::info!("[Discovery] No valid scores returned, returning empty");
+        return Ok(Vec::new());
+    }
+
+    // Deduplicate by MBID (take highest score)
+    let mut artist_scores: HashMap<String, (String, f64)> = HashMap::new();
+    for artist in &lb_data {
+        let entry = artist_scores
+            .entry(artist.artist_mbid.clone())
+            .or_insert_with(|| (artist.name.clone(), 0.0));
+        if artist.score > entry.1 {
+            entry.1 = artist.score;
         }
     }
 
     log::info!(
-        "[Discovery] Aggregated {} unique candidate artists",
-        artist_scores.len()
+        "[Discovery] {} unique candidate artists (max score: {:.0})",
+        artist_scores.len(),
+        max_score
     );
 
     // Step 5: Build exclusion sets
@@ -11661,10 +11673,24 @@ pub async fn v2_get_discovery_artists(
         }
     };
 
-    // Step 6: Filter candidates
+    // Step 6: Filter candidates - apply 85% similarity threshold
+    let similarity_threshold = 85.0;
     let mut candidates: Vec<crate::listenbrainz::DiscoveryArtist> = Vec::new();
 
     for (mbid, (name, score)) in &artist_scores {
+        // Calculate similarity percentage (relative to max score)
+        let similarity_pct = (*score / max_score) * 100.0;
+
+        // Filter below threshold
+        if similarity_pct < similarity_threshold {
+            log::debug!(
+                "[Discovery] Below threshold ({:.1}%): {}",
+                similarity_pct,
+                name
+            );
+            continue;
+        }
+
         // Filter seed artist
         if mbid.to_lowercase() == seed_mbid_lower {
             log::debug!("[Discovery] Excluding seed artist: {}", name);
@@ -11690,13 +11716,15 @@ pub async fn v2_get_discovery_artists(
             name: name.clone(),
             normalized_name: normalized,
             affinity_score: *score,
+            similarity_percent: (similarity_pct * 10.0).round() / 10.0, // 1 decimal place
             qobuz_id: None,
         });
     }
 
     log::info!(
-        "[Discovery] {} candidates after exclusion filtering",
-        candidates.len()
+        "[Discovery] {} candidates after exclusion + {:.0}% threshold filtering",
+        candidates.len(),
+        similarity_threshold
     );
 
     // Sort by affinity_score DESC before Qobuz resolution (so we try the best ones first)

@@ -139,13 +139,20 @@ pub struct ListenBrainzStatus {
 
 // ==================== Discovery Models ====================
 
-/// A recording from ListenBrainz lb-radio response
+/// A similar artist from ListenBrainz Labs similar-artists API
 #[derive(Debug, Clone, Deserialize)]
-pub struct LbRadioRecording {
-    pub recording_mbid: String,
-    pub similar_artist_mbid: String,
-    pub similar_artist_name: String,
-    pub total_listen_count: u64,
+pub struct LbSimilarArtist {
+    pub artist_mbid: String,
+    pub name: String,
+    pub score: f64,
+    #[serde(default)]
+    pub reference_mbid: Option<String>,
+    #[serde(default)]
+    pub comment: Option<String>,
+    #[serde(default, rename = "type")]
+    pub artist_type: Option<String>,
+    #[serde(default)]
+    pub gender: Option<String>,
 }
 
 /// A discovery candidate extracted from ListenBrainz data
@@ -158,8 +165,10 @@ pub struct DiscoveryArtist {
     pub name: String,
     /// Normalized name for dedup (lowercase, trimmed)
     pub normalized_name: String,
-    /// Affinity score from ListenBrainz (sum of listen counts for this artist)
+    /// Raw similarity score from ListenBrainz
     pub affinity_score: f64,
+    /// Similarity percentage (0-100), normalized from raw score
+    pub similarity_percent: f64,
     /// Optional Qobuz artist ID if resolved
     pub qobuz_id: Option<u64>,
 }
