@@ -2708,7 +2708,7 @@
               {#if mbMetadata.location}
                 <div class="origin-row">
                   <span class="origin-label">
-                    {mbMetadata.artist_type === 'person' ? $t('artist.bornIn') : $t('artist.foundedIn')}
+                    {$t('artist.from')}
                   </span>
                   {#if onLocationClick && mbMetadata.location.precision !== 'country' || (mbMetadata.location.city)}
                     <button

@@ -289,6 +289,7 @@
     "born": "Né :",
     "foundedIn": "Fondé à :",
     "bornIn": "Né à :",
+    "from": "De :",
     "loadingOrigin": "Chargement de l'origine...",
     "sceneFrom": "Scène de {location}",
     "sceneBased": "Basé sur {artist} · {genres}",

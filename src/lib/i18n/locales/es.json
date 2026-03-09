@@ -301,6 +301,7 @@
     "born": "Nacido:",
     "foundedIn": "Fundado en:",
     "bornIn": "Nacido en:",
+    "from": "De:",
     "loadingOrigin": "Cargando origen...",
     "sceneFrom": "Escena de {location}",
     "sceneBased": "Basado en {artist} · {genres}",
