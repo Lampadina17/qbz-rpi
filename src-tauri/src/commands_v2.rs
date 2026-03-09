@@ -8976,7 +8976,7 @@ pub async fn v2_discover_artists_by_location(
     for genre in &search_genres {
         let search_result = state
             .client
-            .search_artists_by_tag_and_area(genre, &search_name, per_genre_limit, 0)
+            .search_artists_by_tag_and_area(genre, &search_name, country.as_deref(), per_genre_limit, 0)
             .await;
 
         match search_result {

@@ -386,12 +386,15 @@ impl MusicBrainzClient {
 
     /// Search artists by tag AND area (genre + location combined).
     ///
-    /// Uses MB Lucene query: `tag:"thrash metal" AND beginarea:"Los Angeles"`
-    /// This is much more precise than browse-all-then-filter.
+    /// Uses MB Lucene query combining tag with area terms.
+    /// When country is provided, searches: tag AND (beginarea OR area OR area:country)
+    /// This ensures artists with beginarea:"London" + area:"United Kingdom" are found
+    /// when searching for the "England" subdivision.
     pub async fn search_artists_by_tag_and_area(
         &self,
         tag: &str,
         area_name: &str,
+        country: Option<&str>,
         limit: usize,
         offset: usize,
     ) -> Result<ArtistSearchResponse, String> {
@@ -403,12 +406,31 @@ impl MusicBrainzClient {
 
         let base_url = self.base_url().await;
         let limit = limit.min(100).max(1);
-        let query = format!(
-            "tag:\"{}\" AND (beginarea:\"{}\" OR area:\"{}\")",
-            Self::escape_query(tag),
-            Self::escape_query(area_name),
-            Self::escape_query(area_name),
-        );
+        let escaped_tag = Self::escape_query(tag);
+        let escaped_area = Self::escape_query(area_name);
+
+        // Build area clause: include country if different from area_name
+        let area_clause = if let Some(c) = country {
+            if !c.eq_ignore_ascii_case(area_name) {
+                let escaped_country = Self::escape_query(c);
+                format!(
+                    "(beginarea:\"{}\" OR area:\"{}\" OR area:\"{}\")",
+                    escaped_area, escaped_area, escaped_country
+                )
+            } else {
+                format!(
+                    "(beginarea:\"{}\" OR area:\"{}\")",
+                    escaped_area, escaped_area
+                )
+            }
+        } else {
+            format!(
+                "(beginarea:\"{}\" OR area:\"{}\")",
+                escaped_area, escaped_area
+            )
+        };
+
+        let query = format!("tag:\"{}\" AND {}", escaped_tag, area_clause);
         let url = format!(
             "{}/artist?query={}&fmt=json&limit={}&offset={}",
             base_url,
@@ -418,11 +440,8 @@ impl MusicBrainzClient {
         );
 
         log::debug!(
-            "MusicBrainz artist search by tag '{}' + area '{}' (limit {}, offset {})",
-            tag,
-            area_name,
-            limit,
-            offset
+            "MusicBrainz artist search: {}",
+            query
         );
 
         let response = self
