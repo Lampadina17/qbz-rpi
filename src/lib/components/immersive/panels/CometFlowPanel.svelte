@@ -63,7 +63,7 @@
   let isInitialized = false;
 
   const NUM_BARS = 16;
-  const SMOOTHING = 0.72;
+  const SMOOTHING = 0.52;
   const FRAME_INTERVAL = getPanelFrameInterval('comet-flow');
   const BASE_RENDER_SCALE = FRAME_INTERVAL <= 20 ? 0.52 : FRAME_INTERVAL <= 34 ? 0.58 : 0.64;
   const smoothedData = new Float32Array(NUM_BARS);
@@ -110,9 +110,9 @@
     return {
       depth: Math.random() * 0.22,
       angle: Math.random() * Math.PI * 2,
-      speed: 0.0018 + Math.random() * 0.003 + intensity * 0.0045,
-      width: 2.4 + Math.random() * 4.2 + intensity * 2.8,
-      alpha: 0.2 + Math.random() * 0.28 + intensity * 0.22,
+      speed: 0.002 + Math.random() * 0.004 + intensity * 0.008,
+      width: 2.8 + Math.random() * 4.5 + intensity * 5.0,
+      alpha: 0.25 + Math.random() * 0.3 + intensity * 0.35,
       hue: wrapHue(family + (Math.random() - 0.5) * 16),
       spin: (Math.random() - 0.5) * 0.012,
       curve: 0.05 + Math.random() * 0.14 + intensity * 0.09,
@@ -174,7 +174,7 @@
     ctx.translate(centerX, centerY);
     ctx.rotate(0.0009 + (high - bass) * 0.018 + Math.sin(timeMs * 0.0014) * 0.006);
     ctx.transform(1, shear, -shear * 0.8, 1, 0, 0);
-    const zoom = 1.008 + bass * 0.048 + high * 0.026;
+    const zoom = 1.008 + bass * 0.07 + high * 0.04;
     ctx.scale(zoom, zoom);
     ctx.translate(-centerX + driftX, -centerY + driftY);
     ctx.globalAlpha = 0.8 + bass * 0.12;
@@ -286,9 +286,9 @@
 
     for (let wispIdx = wisps.length - 1; wispIdx >= 0; wispIdx--) {
       const wisp = wisps[wispIdx];
-      wisp.depth += wisp.speed * (0.44 + bass * 1.45);
+      wisp.depth += wisp.speed * (0.5 + bass * 2.2);
       wisp.angle += wisp.spin + Math.sin(timeMs * 0.0013 + wisp.phase) * 0.0018;
-      wisp.alpha *= 0.995;
+      wisp.alpha *= 0.993;
 
       if (wisp.depth > 1.15 || wisp.alpha < 0.025) {
         wisps[wispIdx] = createWisp(0.34 + high * 0.3);
@@ -308,7 +308,7 @@
       const bend =
         Math.sin(timeMs * 0.003 + wisp.phase * 1.4 + wisp.depth * 8) *
         minDim *
-        (wisp.curve + mid * 0.06 + high * 0.04);
+        (wisp.curve + mid * 0.12 + high * 0.08);
 
       const sx = centerX + dirX * startRadius + perpX * bend * 0.18;
       const sy = centerY + dirY * startRadius + perpY * bend * 0.18;
@@ -320,7 +320,7 @@
       const hue = wrapHue(wisp.hue + timeMs * 0.028 + Math.sin(timeMs * 0.0017 + wisp.phase) * 26);
       const saturation = 74 + high * 18;
       const lightness = 52 + bass * 20 + (1 - depthCurve) * 8;
-      const alpha = clamp01(wisp.alpha * (0.42 + bass * 0.4));
+      const alpha = clamp01(wisp.alpha * (0.45 + bass * 0.6 + high * 0.15));
 
       const strokeGradient = ctx.createLinearGradient(sx, sy, ex, ey);
       strokeGradient.addColorStop(0, `hsla(${wrapHue(hue - 20)}, ${Math.max(30, saturation - 18)}%, ${lightness - 8}%, 0)`);
@@ -328,7 +328,7 @@
       strokeGradient.addColorStop(1, `hsla(${wrapHue(hue + 18)}, ${saturation}%, ${lightness + 8}%, 0)`);
 
       ctx.strokeStyle = strokeGradient;
-      const outerWidth = 2.2 + wisp.width + bass * 1.4 + high * 0.9;
+      const outerWidth = 2.4 + wisp.width + bass * 3.0 + high * 1.6;
       ctx.lineWidth = outerWidth;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
@@ -362,20 +362,20 @@
     for (let ringIdx = 0; ringIdx < ringCount; ringIdx++) {
       const flow = (phase * 0.24 + ringIdx / ringCount + timeMs * 0.0001) % 1;
       const fade = Math.pow(1 - flow, 1.08);
-      const radius = minDim * (0.08 + flow * (0.62 + bass * 0.08));
-      const wobble = Math.sin(timeMs * 0.0022 + ringIdx * 1.2) * minDim * (0.01 + high * 0.02);
+      const radius = minDim * (0.08 + flow * (0.62 + bass * 0.22));
+      const wobble = Math.sin(timeMs * 0.0022 + ringIdx * 1.2) * minDim * (0.015 + high * 0.04);
 
       const offsetX = Math.cos(tunnelSpin + ringIdx * 0.26) * wobble;
-      const offsetY = Math.sin(tunnelSpin * 1.2 + ringIdx * 0.31) * wobble * (0.7 + mid * 0.4);
-      const rx = radius * (1.08 + high * 0.16);
-      const ry = radius * (0.7 + bass * 0.2);
+      const offsetY = Math.sin(tunnelSpin * 1.2 + ringIdx * 0.31) * wobble * (0.7 + mid * 0.5);
+      const rx = radius * (1.08 + high * 0.3);
+      const ry = radius * (0.65 + bass * 0.4);
       const rotation = tunnelSpin + ringIdx * 0.065 + Math.sin(timeMs * 0.0013 + ringIdx) * 0.18;
 
       const hue = ringIdx % 4 === 0
         ? wrapHue(198 + Math.cos(timeMs * 0.0018 + ringIdx) * 18 + high * 18)
         : wrapHue(356 + Math.sin(timeMs * 0.0015 + ringIdx * 0.7) * 14 + bass * 22);
-      const alpha = 0.06 + fade * (0.2 + bass * 0.2);
-      const width = 1.4 + fade * (2.2 + bass * 2.2);
+      const alpha = 0.08 + fade * (0.24 + bass * 0.35);
+      const width = 1.6 + fade * (2.6 + bass * 3.5);
 
       ctx.beginPath();
       ctx.ellipse(centerX + offsetX, centerY + offsetY, rx, ry, rotation, 0, Math.PI * 2);
@@ -455,7 +455,7 @@
     const bass = getBassEnergy();
     const mid = getMidEnergy();
     const high = getHighEnergy();
-    phase += 0.004 + bass * 0.014 + high * 0.006;
+    phase += 0.004 + bass * 0.022 + high * 0.01;
     if (beatCooldown > 0) beatCooldown -= 1;
 
     drawFeedbackWarp(centerX, centerY, drawWidth, drawHeight, minDim, timestamp, bass, high);
@@ -506,10 +506,10 @@
       previousBass = bass;
       previousHigh = high;
 
-      if (beatCooldown <= 0 && (bassDelta > 0.06 || highDelta > 0.05 || bass > 0.68)) {
-        const intensity = clamp01(bass * 0.8 + high * 0.5 + Math.max(bassDelta, 0) * 3.2);
-        spawnWisps(1 + Math.floor(intensity * 3), intensity);
-        beatCooldown = 4;
+      if (beatCooldown <= 0 && (bassDelta > 0.03 || highDelta > 0.03 || bass > 0.45)) {
+        const intensity = clamp01(bass * 1.0 + high * 0.6 + Math.max(bassDelta, 0) * 4.5);
+        spawnWisps(2 + Math.floor(intensity * 4), intensity);
+        beatCooldown = 2;
       }
     });
 
