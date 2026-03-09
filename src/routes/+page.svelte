@@ -510,6 +510,7 @@
       city?: string;
       areaId?: string;
       country?: string;
+      countryCode?: string;
       displayName: string;
       precision: 'city' | 'state' | 'country';
     };
@@ -4491,6 +4492,8 @@
           context={artistsByLocationContext}
           onBack={navGoBack}
           onArtistClick={handleArtistClick}
+          onAlbumClick={handleAlbumClick}
+          onAlbumPlay={playAlbumById}
         />
       {/if}
     </main>

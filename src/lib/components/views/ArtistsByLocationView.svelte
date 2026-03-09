@@ -2,8 +2,12 @@
   import { onMount, onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { invoke } from '@tauri-apps/api/core';
-  import { ArrowLeft, Loader2, MapPin, Music } from 'lucide-svelte';
+  import { ArrowLeft, Loader2, Music, Search, X, LayoutGrid, PanelLeftClose, Mic2, Disc3 } from 'lucide-svelte';
   import VirtualizedFavoritesArtistGrid from '../VirtualizedFavoritesArtistGrid.svelte';
+  import VirtualizedFavoritesArtistList from '../VirtualizedFavoritesArtistList.svelte';
+  import AlbumCard from '../AlbumCard.svelte';
+  import { categorizeAlbum } from '$lib/adapters/qobuzAdapters';
+  import type { QobuzAlbum } from '$lib/types';
 
   interface LocationContext {
     sourceArtistMbid: string;
@@ -13,6 +17,7 @@
       city?: string;
       areaId?: string;
       country?: string;
+      countryCode?: string;
       displayName: string;
       precision: 'city' | 'state' | 'country';
     };
@@ -59,10 +64,13 @@
     context: LocationContext;
     onBack: () => void;
     onArtistClick: (artistId: number) => void;
+    onAlbumClick?: (albumId: string) => void;
+    onAlbumPlay?: (albumId: string) => void;
   }
 
-  let { context, onBack, onArtistClick }: Props = $props();
+  let { context, onBack, onArtistClick, onAlbumClick, onAlbumPlay }: Props = $props();
 
+  // Discovery state
   let loading = $state(true);
   let error = $state<string | null>(null);
   let artists = $state<LocationCandidate[]>([]);
@@ -72,6 +80,19 @@
   let hasMore = $state(false);
   let nextOffset = $state(0);
   let loadingMore = $state(false);
+
+  // View state
+  type ViewMode = 'grid' | 'sidepanel';
+  let viewMode = $state<ViewMode>('grid');
+  let searchQuery = $state('');
+  let searchExpanded = $state(false);
+  let groupingEnabled = $state(false);
+
+  // Sidepanel state
+  let selectedArtist = $state<FavoriteArtist | null>(null);
+  let selectedArtistAlbums = $state<QobuzAlbum[]>([]);
+  let loadingAlbums = $state(false);
+  let albumsError = $state<string | null>(null);
 
   // Dynamic loading state
   let loadingStep = $state(0);
@@ -107,25 +128,105 @@
     }
   }
 
-  function candidatesToGroups(candidates: LocationCandidate[]): ArtistGroup[] {
-    const validArtists: FavoriteArtist[] = candidates
+  // Flag URL from circle-flags CDN
+  const flagUrl = $derived(
+    context.location.countryCode
+      ? `https://hatscripts.github.io/circle-flags/flags/${context.location.countryCode}.svg`
+      : null
+  );
+
+  // Convert candidates to FavoriteArtist format
+  function candidatesToFavoriteArtists(candidates: LocationCandidate[]): FavoriteArtist[] {
+    return candidates
       .filter((candidate) => candidate.qobuz_id != null)
       .map((candidate) => ({
         id: candidate.qobuz_id!,
         name: candidate.qobuz_name || candidate.mb_name,
         image: candidate.qobuz_image ? { small: candidate.qobuz_image } : undefined,
       }));
-
-    if (validArtists.length === 0) return [];
-
-    return [{
-      key: '',
-      id: 'scene-results',
-      artists: validArtists,
-    }];
   }
 
-  let groups = $derived(candidatesToGroups(artists));
+  // Client-side search filter
+  let allArtists = $derived(candidatesToFavoriteArtists(artists));
+  let filteredArtists = $derived.by(() => {
+    if (!searchQuery.trim()) return allArtists;
+    const query = searchQuery.toLowerCase();
+    return allArtists.filter((artist) => artist.name.toLowerCase().includes(query));
+  });
+
+  // Grouping
+  function alphaGroupKey(name: string): string {
+    const first = name.charAt(0).toUpperCase();
+    return /[A-Z]/.test(first) ? first : '#';
+  }
+
+  function groupArtists(items: FavoriteArtist[]): ArtistGroup[] {
+    const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name));
+    const groups = new Map<string, FavoriteArtist[]>();
+    for (const artist of sorted) {
+      const key = alphaGroupKey(artist.name);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)?.push(artist);
+    }
+    const keys = [...groups.keys()].sort((a, b) => {
+      if (a === '#') return -1;
+      if (b === '#') return 1;
+      return a.localeCompare(b);
+    });
+    return keys.map((key) => ({
+      key,
+      id: `scene-alpha-${key}`,
+      artists: groups.get(key) ?? [],
+    }));
+  }
+
+  let groups = $derived.by(() => {
+    if (groupingEnabled) return groupArtists(filteredArtists);
+    return [{ key: '', id: 'scene-all', artists: filteredArtists }];
+  });
+
+  // Album categorization for sidepanel
+  let groupedAlbums = $derived.by(() => {
+    if (!selectedArtist) return { discography: [], epsSingles: [], liveAlbums: [] };
+    const discography: QobuzAlbum[] = [];
+    const epsSingles: QobuzAlbum[] = [];
+    const liveAlbums: QobuzAlbum[] = [];
+    for (const album of selectedArtistAlbums) {
+      const category = categorizeAlbum(album, selectedArtist.id);
+      switch (category) {
+        case 'albums': discography.push(album); break;
+        case 'eps': epsSingles.push(album); break;
+        case 'live': liveAlbums.push(album); break;
+      }
+    }
+    return { discography, epsSingles, liveAlbums };
+  });
+
+  let totalDisplayedAlbums = $derived(
+    groupedAlbums.discography.length + groupedAlbums.epsSingles.length + groupedAlbums.liveAlbums.length
+  );
+
+  // Sidepanel artist select
+  async function handleArtistSelect(artist: FavoriteArtist) {
+    selectedArtist = artist;
+    selectedArtistAlbums = [];
+    loadingAlbums = true;
+    albumsError = null;
+
+    try {
+      const result = await invoke<{ items: QobuzAlbum[] }>('get_artist_albums', {
+        artistId: artist.id,
+        limit: 500,
+        offset: 0,
+      });
+      selectedArtistAlbums = result.items || [];
+    } catch (err) {
+      console.error('[SceneView] Failed to load artist albums:', err);
+      albumsError = String(err);
+    } finally {
+      loadingAlbums = false;
+    }
+  }
 
   async function discoverArtists(offset: number = 0) {
     try {
@@ -143,7 +244,6 @@
       if (offset === 0) {
         artists = response.artists;
       } else {
-        // Deduplicate: filter out artists already displayed (by qobuz_id or mbid)
         const existingIds = new Set(artists.map((a) => a.mbid));
         const newArtists = response.artists.filter((a) => !existingIds.has(a.mbid));
         artists = [...artists, ...newArtists];
@@ -181,30 +281,95 @@
 </script>
 
 <div class="scene-view">
-  <div class="scene-header">
-    <button class="back-button" onclick={onBack} title={$t('actions.back')}>
-      <ArrowLeft size={20} />
+  <!-- Top bar with back button -->
+  <div class="top-bar">
+    <button class="back-btn" onclick={onBack}>
+      <ArrowLeft size={16} />
+      <span>{$t('actions.back')}</span>
     </button>
-    <div class="scene-header-info">
-      <div class="scene-title">
-        <MapPin size={18} />
-        <span>
-          {sceneLabel || $t('artist.sceneFrom', { values: { location: context.location.displayName } })}
-        </span>
-      </div>
-      {#if genreSummary || context.affinitySeeds.genres.length > 0}
-        <div class="scene-subtitle">
-          {$t('artist.sceneBased', {
-            values: {
-              artist: context.sourceArtistName,
-              genres: genreSummary || context.affinitySeeds.genres.slice(0, 3).join(' / '),
-            },
-          })}
+  </div>
+
+  <!-- Header with flag -->
+  <div class="header">
+    {#if flagUrl}
+      <img src={flagUrl} alt="" class="flag-icon" />
+    {/if}
+    <h1>{sceneLabel || context.location.country || context.location.displayName}</h1>
+    {#if !loading && filteredArtists.length > 0}
+      <span class="results-count">
+        {filteredArtists.length}{searchQuery ? ` / ${allArtists.length}` : ''} {$t('nav.artists').toLowerCase()}
+      </span>
+    {/if}
+    <div class="header-search">
+      {#if !searchExpanded}
+        <button class="search-icon-btn" onclick={() => (searchExpanded = true)} title={$t('nav.search')}>
+          <Search size={16} />
+        </button>
+      {:else}
+        <div class="search-expanded">
+          <Search size={16} class="search-icon-inline" />
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            type="text"
+            placeholder={$t('placeholders.search')}
+            bind:value={searchQuery}
+            class="search-input-inline"
+            autofocus
+          />
+          <button class="search-clear-btn" onclick={() => { searchQuery = ''; searchExpanded = false; }}>
+            <X size={14} />
+          </button>
         </div>
       {/if}
     </div>
   </div>
 
+  <!-- Subtitle -->
+  {#if genreSummary || context.affinitySeeds.genres.length > 0}
+    <div class="scene-subtitle">
+      {$t('artist.sceneBased', {
+        values: {
+          artist: context.sourceArtistName,
+          genres: genreSummary || context.affinitySeeds.genres.slice(0, 3).join(' / '),
+        },
+      })}
+    </div>
+  {/if}
+
+  <!-- Controls bar -->
+  {#if !loading && !error && allArtists.length > 0}
+    <div class="controls-bar">
+      <div class="nav-right">
+        <button
+          class="control-btn"
+          class:active={groupingEnabled}
+          onclick={() => (groupingEnabled = !groupingEnabled)}
+        >
+          <span>{groupingEnabled ? 'A-Z' : 'Group'}</span>
+        </button>
+        <button
+          class="control-btn icon-only"
+          onclick={() => {
+            if (viewMode === 'grid') {
+              viewMode = 'sidepanel';
+            } else {
+              viewMode = 'grid';
+              selectedArtist = null;
+            }
+          }}
+          title={viewMode === 'grid' ? 'Browse view' : 'Grid view'}
+        >
+          {#if viewMode === 'grid'}
+            <PanelLeftClose size={16} />
+          {:else}
+            <LayoutGrid size={16} />
+          {/if}
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Content -->
   <div class="scene-content">
     {#if loading}
       <div class="scene-loading">
@@ -233,17 +398,17 @@
           {$t('actions.retry')}
         </button>
       </div>
-    {:else if groups.length === 0}
+    {:else if allArtists.length === 0}
       <div class="scene-empty">
-        <MapPin size={48} />
+        <Music size={48} />
         <p>{$t('artist.noSceneResults')}</p>
       </div>
-    {:else}
+    {:else if viewMode === 'grid'}
       <div class="scene-grid-container">
         <VirtualizedFavoritesArtistGrid
           {groups}
-          showGroupHeaders={false}
-          {onArtistClick}
+          showGroupHeaders={groupingEnabled}
+          onArtistClick={(id) => onArtistClick(id)}
         />
       </div>
 
@@ -255,11 +420,116 @@
             {/if}
             <span>
               {$t('actions.loadMore')}
-              ({artists.length} / {totalCandidates})
+              ({allArtists.length} / {totalCandidates})
             </span>
           </button>
         </div>
       {/if}
+    {:else}
+      <!-- Sidepanel mode: artist list + albums -->
+      <div class="artist-two-column-layout">
+        <div class="artist-column">
+          <VirtualizedFavoritesArtistList
+            groups={groupArtists(filteredArtists)}
+            showGroupHeaders={true}
+            selectedArtistId={selectedArtist?.id ?? null}
+            onArtistSelect={handleArtistSelect}
+          />
+        </div>
+
+        <div class="artist-albums-column">
+          {#if !selectedArtist}
+            <div class="artist-albums-empty">
+              <Mic2 size={48} />
+              <p>{$t('favorites.selectArtistHint')}</p>
+            </div>
+          {:else if loadingAlbums}
+            <div class="artist-albums-loading">
+              <Loader2 size={32} class="spinner-icon" />
+              <p>{$t('favorites.loadingAlbums')}</p>
+            </div>
+          {:else if albumsError}
+            <div class="artist-albums-error">
+              <p>{$t('favorites.failedLoadAlbums')}</p>
+              <p class="error-detail">{albumsError}</p>
+            </div>
+          {:else if totalDisplayedAlbums === 0}
+            <div class="artist-albums-empty">
+              <Disc3 size={48} />
+              <p>{$t('artist.noAlbumsFound')}</p>
+            </div>
+          {:else}
+            <div class="artist-albums-scroll">
+              {#if groupedAlbums.discography.length > 0}
+                <div class="artist-albums-section">
+                  <div class="artist-albums-section-header">
+                    <span class="section-title">{$t('artist.discography')}</span>
+                    <span class="section-count">{groupedAlbums.discography.length}</span>
+                  </div>
+                  <div class="artist-albums-grid">
+                    {#each groupedAlbums.discography as album (album.id)}
+                      <AlbumCard
+                        albumId={album.id}
+                        artwork={album.image?.large || album.image?.small || ''}
+                        title={album.title}
+                        artist={album.artist?.name || ''}
+                        genre={album.genre?.name}
+                        releaseDate={album.release_date_original}
+                        onclick={() => onAlbumClick?.(album.id)}
+                        onPlay={() => onAlbumPlay?.(album.id)}
+                      />
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+              {#if groupedAlbums.epsSingles.length > 0}
+                <div class="artist-albums-section">
+                  <div class="artist-albums-section-header">
+                    <span class="section-title">{$t('artist.epsSingles')}</span>
+                    <span class="section-count">{groupedAlbums.epsSingles.length}</span>
+                  </div>
+                  <div class="artist-albums-grid">
+                    {#each groupedAlbums.epsSingles as album (album.id)}
+                      <AlbumCard
+                        albumId={album.id}
+                        artwork={album.image?.large || album.image?.small || ''}
+                        title={album.title}
+                        artist={album.artist?.name || ''}
+                        genre={album.genre?.name}
+                        releaseDate={album.release_date_original}
+                        onclick={() => onAlbumClick?.(album.id)}
+                        onPlay={() => onAlbumPlay?.(album.id)}
+                      />
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+              {#if groupedAlbums.liveAlbums.length > 0}
+                <div class="artist-albums-section">
+                  <div class="artist-albums-section-header">
+                    <span class="section-title">{$t('artist.liveAlbums')}</span>
+                    <span class="section-count">{groupedAlbums.liveAlbums.length}</span>
+                  </div>
+                  <div class="artist-albums-grid">
+                    {#each groupedAlbums.liveAlbums as album (album.id)}
+                      <AlbumCard
+                        albumId={album.id}
+                        artwork={album.image?.large || album.image?.small || ''}
+                        title={album.title}
+                        artist={album.artist?.name || ''}
+                        genre={album.genre?.name}
+                        releaseDate={album.release_date_original}
+                        onclick={() => onAlbumClick?.(album.id)}
+                        onPlay={() => onAlbumPlay?.(album.id)}
+                      />
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </div>
     {/if}
   </div>
 </div>
@@ -272,15 +542,72 @@
     overflow: hidden;
   }
 
-  .scene-header {
+  /* Top bar - matches FavoritesView */
+  .top-bar {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 0 0 20px 0;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .back-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: color 150ms ease;
+  }
+
+  .back-btn:hover {
+    color: var(--text-secondary);
+  }
+
+  /* Header with flag */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+    min-height: 40px;
+  }
+
+  .flag-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+  }
+
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .results-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
     flex-shrink: 0;
   }
 
-  .back-button {
+  .header-search {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .search-icon-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -288,40 +615,120 @@
     height: 36px;
     border-radius: 8px;
     border: none;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: background-color 150ms ease;
-    flex-shrink: 0;
-  }
-
-  .back-button:hover {
     background: var(--bg-tertiary);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 150ms ease;
   }
 
-  .scene-header-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
+  .search-icon-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
-  .scene-title {
+  .search-expanded {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text-primary);
-    line-height: 1.2;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 6px 12px;
+    width: 240px;
   }
 
+  :global(.search-expanded .search-icon-inline) {
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .search-input-inline {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  .search-input-inline::placeholder {
+    color: var(--text-muted);
+  }
+
+  .search-clear-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+
+  .search-clear-btn:hover {
+    color: var(--text-primary);
+  }
+
+  /* Subtitle */
   .scene-subtitle {
     font-size: 13px;
     color: var(--text-muted);
     line-height: 1.4;
+    margin-bottom: 12px;
   }
 
+  /* Controls bar */
+  .controls-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .control-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .control-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .control-btn.active {
+    background: var(--accent-primary);
+    color: var(--text-on-accent, #fff);
+    border-color: var(--accent-primary);
+  }
+
+  .control-btn.icon-only {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  /* Content area */
   .scene-content {
     flex: 1;
     min-height: 0;
@@ -330,7 +737,109 @@
     flex-direction: column;
   }
 
-  /* Loading state with dynamic messages */
+  /* Grid container */
+  .scene-grid-container {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Two-column sidepanel layout */
+  .artist-two-column-layout {
+    display: flex;
+    gap: 0;
+    flex: 1;
+    min-height: 0;
+    margin: 0 -8px 0 -18px;
+    padding: 0;
+  }
+
+  .artist-column {
+    width: 240px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: transparent;
+    border-right: 1px solid var(--bg-tertiary);
+    overflow: hidden;
+    padding-left: 18px;
+  }
+
+  .artist-albums-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0 8px 0 24px;
+  }
+
+  .artist-albums-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 8px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    contain: strict;
+  }
+
+  .artist-albums-section {
+    margin-bottom: 32px;
+  }
+
+  .artist-albums-section:last-of-type {
+    margin-bottom: 16px;
+  }
+
+  .artist-albums-section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--bg-tertiary);
+    margin-bottom: 16px;
+  }
+
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .section-count {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .artist-albums-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    align-content: start;
+  }
+
+  .artist-albums-empty,
+  .artist-albums-loading,
+  .artist-albums-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .error-detail {
+    font-size: 12px;
+    opacity: 0.7;
+  }
+
+  :global(.artist-albums-loading .spinner-icon) {
+    animation: spin 1s linear infinite;
+  }
+
+  /* Loading state */
   .scene-loading {
     display: flex;
     flex-direction: column;
@@ -359,14 +868,8 @@
   }
 
   @keyframes pulse {
-    0%, 100% {
-      transform: scale(1);
-      opacity: 0.8;
-    }
-    50% {
-      transform: scale(1.08);
-      opacity: 1;
-    }
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.08); opacity: 1; }
   }
 
   .loading-status {
@@ -388,14 +891,8 @@
   }
 
   @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .loading-dots {
@@ -411,25 +908,15 @@
     animation: dotBounce 1.4s ease-in-out infinite;
   }
 
-  .dot:nth-child(2) {
-    animation-delay: 0.2s;
-  }
-
-  .dot:nth-child(3) {
-    animation-delay: 0.4s;
-  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
 
   @keyframes dotBounce {
-    0%, 80%, 100% {
-      opacity: 0.3;
-      transform: scale(0.8);
-    }
-    40% {
-      opacity: 1;
-      transform: scale(1);
-    }
+    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1); }
   }
 
+  /* Error and empty states */
   .scene-error {
     display: flex;
     flex-direction: column;
@@ -466,11 +953,7 @@
     font-size: 14px;
   }
 
-  .scene-grid-container {
-    flex: 1;
-    min-height: 0;
-  }
-
+  /* Load more */
   .load-more-container {
     display: flex;
     justify-content: center;

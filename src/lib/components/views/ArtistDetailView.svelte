@@ -116,6 +116,7 @@
       city?: string;
       areaId?: string;
       country?: string;
+      countryCode?: string;
       displayName: string;
       precision: 'city' | 'state' | 'country';
     };
@@ -135,6 +136,7 @@
       city?: string;
       area_id?: string;
       country?: string;
+      country_code?: string;
       display_name: string;
       precision: 'city' | 'state' | 'country';
     };
@@ -2727,6 +2729,7 @@
                             city: loc.city ?? undefined,
                             areaId: loc.area_id ?? undefined,
                             country: loc.country ?? undefined,
+                            countryCode: loc.country_code ?? undefined,
                             displayName: loc.display_name,
                             precision: loc.precision,
                           },
