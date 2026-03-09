@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { invoke } from '@tauri-apps/api/core';
-  import { ArrowLeft, Loader2, Music, Search, X, LayoutGrid, PanelLeftClose, Mic2, Disc3, ChevronDown } from 'lucide-svelte';
+  import { ArrowLeft, Loader2, Music, Search, X, LayoutGrid, PanelLeftClose, Mic2, Disc3, ChevronDown, Filter } from 'lucide-svelte';
   import VirtualizedFavoritesArtistGrid from '../VirtualizedFavoritesArtistGrid.svelte';
   import VirtualizedFavoritesArtistList from '../VirtualizedFavoritesArtistList.svelte';
   import AlbumCard from '../AlbumCard.svelte';
@@ -79,6 +79,7 @@
   let totalCandidates = $state(0);
   let hasMore = $state(false);
   let nextOffset = $state(0);
+  let loadingMore = $state(false);
 
   // View state
   type ViewMode = 'grid' | 'sidepanel';
@@ -88,6 +89,7 @@
   let groupingEnabled = $state(false);
   let showGroupMenu = $state(false);
   let activeGenreFilters = $state<Set<string>>(new Set());
+  let showGenreFilters = $state(false);
 
   // Sidepanel state
   let selectedArtist = $state<FavoriteArtist | null>(null);
@@ -316,7 +318,7 @@
         country: context.location.country || null,
         genres: context.affinitySeeds.genres,
         tags: context.affinitySeeds.tags,
-        limit: 200,
+        limit: 100,
         offset,
       });
 
@@ -336,6 +338,13 @@
       console.error('[ArtistsByLocationView] Discovery failed:', err);
       error = String(err);
     }
+  }
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    loadingMore = true;
+    await discoverArtists(nextOffset);
+    loadingMore = false;
   }
 
   onMount(async () => {
@@ -416,6 +425,21 @@
           {/if}
         </div>
 
+        <!-- Genre filter toggle -->
+        {#if availableGenres.length > 1}
+          <button
+            class="control-btn icon-only"
+            class:active-filter={showGenreFilters || activeGenreFilters.size > 0}
+            onclick={() => { showGenreFilters = !showGenreFilters; }}
+            title="Filter by genre"
+          >
+            <Filter size={16} />
+            {#if activeGenreFilters.size > 0}
+              <span class="filter-badge">{activeGenreFilters.size}</span>
+            {/if}
+          </button>
+        {/if}
+
         <!-- View toggle -->
         <button
           class="control-btn icon-only"
@@ -467,8 +491,8 @@
     </div>
   {/if}
 
-  <!-- Genre filter pills -->
-  {#if !loading && !error && availableGenres.length > 1}
+  <!-- Genre filter buttons (toggled) -->
+  {#if showGenreFilters && !loading && !error && availableGenres.length > 1}
     <div class="genre-filters">
       {#if activeGenreFilters.size > 0}
         <button class="genre-pill active clear-pill" onclick={clearGenreFilters}>
@@ -549,6 +573,19 @@
         {/if}
       </div>
 
+      {#if hasMore}
+        <div class="load-more-container">
+          <button class="load-more-button" onclick={loadMore} disabled={loadingMore}>
+            {#if loadingMore}
+              <Loader2 size={16} class="spin" />
+            {/if}
+            <span>
+              {$t('actions.loadMore')}
+              ({allArtists.length} / {totalCandidates})
+            </span>
+          </button>
+        </div>
+      {/if}
     {:else}
       <!-- Sidepanel mode -->
       <div class="artist-two-column-layout">
@@ -856,6 +893,7 @@
   }
 
   .control-btn.icon-only {
+    position: relative;
     width: 36px;
     height: 36px;
     padding: 0;
@@ -904,7 +942,29 @@
     font-weight: 600;
   }
 
-  /* Genre filter pills */
+  /* Filter toggle active state */
+  .control-btn.active-filter {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .filter-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Genre filter buttons */
   .genre-filters {
     display: flex;
     flex-wrap: wrap;
@@ -1228,6 +1288,41 @@
     padding: 80px 0;
     color: var(--text-muted);
     font-size: 14px;
+  }
+
+  /* Load more */
+  .load-more-container {
+    display: flex;
+    justify-content: center;
+    padding: 16px 0 8px;
+    flex-shrink: 0;
+  }
+
+  .load-more-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 150ms ease;
+  }
+
+  .load-more-button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+  }
+
+  .load-more-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  :global(.load-more-button .spin) {
+    animation: spin 1s linear infinite;
   }
 
   @keyframes spin {
