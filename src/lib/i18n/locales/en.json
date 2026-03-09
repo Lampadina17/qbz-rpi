@@ -296,7 +296,15 @@
     "customImageError": "Failed to update artist image",
     "imageSaved": "Artist image saved",
     "youMayAlsoLike": "YOU MAY ALSO LIKE",
-    "dismissRecommendation": "Not a good recommendation"
+    "dismissRecommendation": "Not a good recommendation",
+    "founded": "Founded:",
+    "born": "Born:",
+    "foundedIn": "Founded in:",
+    "bornIn": "Born in:",
+    "loadingOrigin": "Loading origin...",
+    "sceneFrom": "{location} scene",
+    "sceneBased": "Based on {artist} · {genres}",
+    "noSceneResults": "No matching artists from this scene are currently available on Qobuz."
   },
   "sort": {
     "nameAZ": "Name (A-Z)",

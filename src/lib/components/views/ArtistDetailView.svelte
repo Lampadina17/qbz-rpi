@@ -103,8 +103,46 @@
     onTrackGoToArtist?: (artistId: number) => void;
     onLabelClick?: (labelId: number, labelName?: string) => void;
     onMusicianClick?: (name: string, role: string) => void;
+    onLocationClick?: (context: ArtistsByLocationContext) => void;
     activeTrackId?: number | null;
     isPlaybackActive?: boolean;
+  }
+
+  interface ArtistsByLocationContext {
+    sourceArtistMbid: string;
+    sourceArtistName: string;
+    sourceArtistType: 'Person' | 'Group' | 'Other';
+    location: {
+      city?: string;
+      areaId?: string;
+      country?: string;
+      displayName: string;
+      precision: 'city' | 'state' | 'country';
+    };
+    affinitySeeds: {
+      genres: string[];
+      tags: string[];
+      normalizedSeeds: string[];
+    };
+  }
+
+  interface ArtistMbMetadata {
+    mbid: string;
+    name: string;
+    artist_type: string;
+    life_span?: { begin?: string; end?: string; ended?: boolean };
+    location?: {
+      city?: string;
+      area_id?: string;
+      country?: string;
+      display_name: string;
+      precision: 'city' | 'state' | 'country';
+    };
+    affinity_seeds: {
+      genres: string[];
+      tags: string[];
+      normalized_seeds: string[];
+    };
   }
 
   let {
@@ -139,6 +177,7 @@
     onTrackGoToArtist,
     onLabelClick,
     onMusicianClick,
+    onLocationClick,
     activeTrackId = null,
     isPlaybackActive = false
   }: Props = $props();
@@ -261,6 +300,8 @@
   let mbRelationshipsLoading = $state(false);
   let mbArtistMbid = $state<string | null>(null);
   let mbAvailable = $state(true); // Assume available until proven otherwise
+  let mbMetadata = $state<ArtistMbMetadata | null>(null);
+  let mbMetadataLoading = $state(false);
 
   // Discovery: "You may also like" (MusicBrainz tag-based)
   interface DiscoveryArtist {
@@ -514,6 +555,8 @@
     mbRelationships = null;
     mbRelationshipsLoading = true;
     mbArtistMbid = null;
+    mbMetadata = null;
+    mbMetadataLoading = false;
     discoveryArtists = [];
     discoveryReserves = [];
     discoveryTag = '';
@@ -864,6 +907,24 @@
     }
   }
 
+  // Format MB life_span into a short human-readable date
+  function formatMbDate(lifeSpan: { begin?: string; end?: string; ended?: boolean }): string {
+    if (!lifeSpan.begin) return '';
+    const formatPart = (date: string): string => {
+      const parts = date.split('-');
+      if (parts.length === 1) return parts[0];
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      const month = months[monthIdx] ?? parts[1];
+      return `${month} ${parts[0]}`;
+    };
+    const begin = formatPart(lifeSpan.begin);
+    if (lifeSpan.ended && lifeSpan.end) {
+      return `${begin}–${formatPart(lifeSpan.end)}`;
+    }
+    return begin;
+  }
+
   // Load MusicBrainz relationships for artist enrichment
   async function loadMusicBrainzRelationships() {
     // First, resolve the artist to get MBID
@@ -894,6 +955,20 @@
       }
 
       mbArtistMbid = resolved.mbid;
+
+      // Fetch metadata (location, genres) in parallel with relationships
+      mbMetadataLoading = true;
+      invoke<ArtistMbMetadata>('v2_musicbrainz_get_artist_metadata', { mbid: resolved.mbid })
+        .then(metadata => {
+          mbMetadata = metadata;
+        })
+        .catch(err => {
+          console.error('Failed to load MusicBrainz metadata:', err);
+          mbMetadata = null;
+        })
+        .finally(() => {
+          mbMetadataLoading = false;
+        });
 
       // Fetch relationships
       const relationships = await invoke<{
@@ -2614,6 +2689,66 @@
       </div>
 
       <div class="sidebar-content">
+        <!-- Origin Section (MusicBrainz) -->
+        {#if mbAvailable && (mbMetadataLoading || mbMetadata)}
+          <section class="sidebar-section sidebar-origin">
+            {#if mbMetadataLoading}
+              <div class="origin-loading">
+                <span class="placeholder-text">{$t('artist.loadingOrigin')}</span>
+              </div>
+            {:else if mbMetadata}
+              {#if mbMetadata.life_span?.begin}
+                <div class="origin-row">
+                  <span class="origin-label">
+                    {mbMetadata.artist_type === 'Person' ? $t('artist.born') : $t('artist.founded')}
+                  </span>
+                  <span class="origin-value">{formatMbDate(mbMetadata.life_span)}</span>
+                </div>
+              {/if}
+              {#if mbMetadata.location}
+                <div class="origin-row">
+                  <span class="origin-label">
+                    {mbMetadata.artist_type === 'Person' ? $t('artist.bornIn') : $t('artist.foundedIn')}
+                  </span>
+                  {#if onLocationClick && mbMetadata.location.precision !== 'country' || (mbMetadata.location.city)}
+                    <button
+                      class="origin-location-link"
+                      onclick={() => {
+                        if (!mbMetadata?.location || !mbArtistMbid) return;
+                        const loc = mbMetadata.location;
+                        const artistTypeMap: Record<string, 'Person' | 'Group' | 'Other'> = {
+                          'Person': 'Person', 'Group': 'Group'
+                        };
+                        onLocationClick?.({
+                          sourceArtistMbid: mbArtistMbid,
+                          sourceArtistName: mbMetadata.name,
+                          sourceArtistType: artistTypeMap[mbMetadata.artist_type] ?? 'Other',
+                          location: {
+                            city: loc.city ?? undefined,
+                            areaId: loc.area_id ?? undefined,
+                            country: loc.country ?? undefined,
+                            displayName: loc.display_name,
+                            precision: loc.precision,
+                          },
+                          affinitySeeds: {
+                            genres: mbMetadata.affinity_seeds.genres,
+                            tags: mbMetadata.affinity_seeds.tags,
+                            normalizedSeeds: mbMetadata.affinity_seeds.normalized_seeds,
+                          }
+                        });
+                      }}
+                    >
+                      {mbMetadata.location.display_name}
+                    </button>
+                  {:else}
+                    <span class="origin-value">{mbMetadata.location.display_name}</span>
+                  {/if}
+                </div>
+              {/if}
+            {/if}
+          </section>
+        {/if}
+
         <!-- Labels Section -->
         <section class="sidebar-section">
           <h4 class="section-label">LABELS</h4>
@@ -2921,6 +3056,48 @@
 
   .sidebar-section:last-child {
     margin-bottom: 0;
+  }
+
+  .sidebar-origin {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .origin-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .origin-label {
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .origin-value {
+    color: var(--text-primary);
+  }
+
+  .origin-location-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    color: var(--accent-primary);
+    cursor: pointer;
+    text-align: left;
+    text-decoration: none;
+  }
+
+  .origin-location-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .origin-loading {
+    padding: 4px 0;
   }
 
   .section-label {

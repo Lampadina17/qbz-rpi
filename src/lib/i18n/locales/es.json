@@ -296,7 +296,15 @@
     "customImageError": "Error al actualizar imagen del artista",
     "imageSaved": "Imagen del artista guardada",
     "youMayAlsoLike": "TAMBIÉN TE PUEDE GUSTAR",
-    "dismissRecommendation": "No es una buena recomendación"
+    "dismissRecommendation": "No es una buena recomendación",
+    "founded": "Fundado:",
+    "born": "Nacido:",
+    "foundedIn": "Fundado en:",
+    "bornIn": "Nacido en:",
+    "loadingOrigin": "Cargando origen...",
+    "sceneFrom": "Escena de {location}",
+    "sceneBased": "Basado en {artist} · {genres}",
+    "noSceneResults": "No hay artistas de esta escena disponibles actualmente en Qobuz."
   },
   "sort": {
     "nameAZ": "Nombre (A-Z)",

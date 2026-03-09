@@ -284,7 +284,15 @@
     "customImageError": "Erreur lors de la mise à jour de l'image",
     "imageSaved": "Image de l'artiste enregistrée",
     "youMayAlsoLike": "VOUS AIMEREZ AUSSI",
-    "dismissRecommendation": "Pas une bonne recommandation"
+    "dismissRecommendation": "Pas une bonne recommandation",
+    "founded": "Fondé :",
+    "born": "Né :",
+    "foundedIn": "Fondé à :",
+    "bornIn": "Né à :",
+    "loadingOrigin": "Chargement de l'origine...",
+    "sceneFrom": "Scène de {location}",
+    "sceneBased": "Basé sur {artist} · {genres}",
+    "noSceneResults": "Aucun artiste de cette scène n'est actuellement disponible sur Qobuz."
   },
   "sort": {
     "nameAZ": "Nom (A-Z)",

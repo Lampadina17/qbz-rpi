@@ -284,7 +284,15 @@
     "customImageError": "Fehler beim Aktualisieren des Künstlerbilds",
     "imageSaved": "Künstlerbild gespeichert",
     "youMayAlsoLike": "DAS KÖNNTE DIR AUCH GEFALLEN",
-    "dismissRecommendation": "Keine gute Empfehlung"
+    "dismissRecommendation": "Keine gute Empfehlung",
+    "founded": "Gegründet:",
+    "born": "Geboren:",
+    "foundedIn": "Gegründet in:",
+    "bornIn": "Geboren in:",
+    "loadingOrigin": "Herkunft wird geladen...",
+    "sceneFrom": "{location}-Szene",
+    "sceneBased": "Basierend auf {artist} · {genres}",
+    "noSceneResults": "Keine Künstler dieser Szene sind derzeit auf Qobuz verfügbar."
   },
   "sort": {
     "nameAZ": "Name (A-Z)",
