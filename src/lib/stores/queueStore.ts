@@ -315,6 +315,21 @@ export async function addTracksToQueue(tracks: BackendQueueTrack[]): Promise<boo
 }
 
 /**
+ * Add multiple tracks to play next in queue (V2)
+ * Backend reverses the order so they play in the correct sequence.
+ */
+export async function addTracksToQueueNext(tracks: BackendQueueTrack[]): Promise<boolean> {
+  try {
+    await invoke('v2_add_tracks_to_queue_next', { tracks });
+    await syncQueueState();
+    return true;
+  } catch (err) {
+    console.error('Failed to add tracks to queue next:', err);
+    return false;
+  }
+}
+
+/**
  * Set queue with new tracks (V2)
  */
 export async function setQueue(tracks: BackendQueueTrack[], startIndex: number, clearLocal = true): Promise<boolean> {

@@ -197,6 +197,7 @@
     toggleShuffle as queueToggleShuffle,
     toggleRepeat as queueToggleRepeat,
     addToQueueNext,
+    addTracksToQueueNext,
     addToQueue,
     addTracksToQueue,
     setQueue,
@@ -1232,24 +1233,27 @@
     if (!album?.tracks?.length) return;
 
     const artwork = album.artwork || '';
-    for (let i = album.tracks.length - 1; i >= 0; i--) {
-      const trk = album.tracks[i];
-      queueTrackNext({
-        id: trk.id,
-        title: trk.title,
-        artist: trk.artist || album.artist || 'Unknown Artist',
-        album: album.title || '',
-        duration_secs: trk.durationSeconds,
-        artwork_url: artwork || null,
-        hires: trk.hires ?? false,
-        bit_depth: trk.bitDepth ?? null,
-        sample_rate: trk.samplingRate ?? null,
-        is_local: false,
-        album_id: album.id,
-        artist_id: trk.artistId ?? album.artistId
-      });
+    const queueTracks: BackendQueueTrack[] = album.tracks.map(trk => ({
+      id: trk.id,
+      title: trk.title,
+      artist: trk.artist || album.artist || 'Unknown Artist',
+      album: album.title || '',
+      duration_secs: trk.durationSeconds,
+      artwork_url: artwork || null,
+      hires: trk.hires ?? false,
+      bit_depth: trk.bitDepth ?? null,
+      sample_rate: trk.samplingRate ?? null,
+      is_local: false,
+      album_id: album.id,
+      artist_id: trk.artistId ?? album.artistId
+    }));
+
+    const success = await addTracksToQueueNext(queueTracks);
+    if (success) {
+      showToast($t('toast.playingTracksNext', { values: { count: queueTracks.length } }), 'success');
+    } else {
+      showToast($t('toast.failedAddToQueue'), 'error');
     }
-    showToast($t('toast.playingTracksNext', { values: { count: album.tracks.length } }), 'success');
   }
 
   async function queueAlbumLaterById(albumId: string) {
@@ -1435,25 +1439,27 @@
     }
 
     const tracks = playlist.tracks.items;
-    // Add in reverse order so they play in correct sequence
-    for (let i = tracks.length - 1; i >= 0; i--) {
-      const trk = tracks[i];
-      queueTrackNext({
-        id: trk.id,
-        title: trk.title,
-        artist: trk.performer?.name || 'Unknown Artist',
-        album: trk.album?.title || '',
-        duration_secs: trk.duration,
-        artwork_url: trk.album?.image?.large || trk.album?.image?.thumbnail || trk.album?.image?.small || null,
-        hires: trk.hires_streamable ?? false,
-        bit_depth: trk.maximum_bit_depth ?? null,
-        sample_rate: trk.maximum_sampling_rate ?? null,
-        is_local: false,
-        album_id: trk.album?.id,
-        artist_id: trk.performer?.id
-      });
+    const queueTracks: BackendQueueTrack[] = tracks.map(trk => ({
+      id: trk.id,
+      title: trk.title,
+      artist: trk.performer?.name || 'Unknown Artist',
+      album: trk.album?.title || '',
+      duration_secs: trk.duration,
+      artwork_url: trk.album?.image?.large || trk.album?.image?.thumbnail || trk.album?.image?.small || null,
+      hires: trk.hires_streamable ?? false,
+      bit_depth: trk.maximum_bit_depth ?? null,
+      sample_rate: trk.maximum_sampling_rate ?? null,
+      is_local: false,
+      album_id: trk.album?.id,
+      artist_id: trk.performer?.id
+    }));
+
+    const success = await addTracksToQueueNext(queueTracks);
+    if (success) {
+      showToast($t('toast.playingTracksNext', { values: { count: queueTracks.length } }), 'success');
+    } else {
+      showToast($t('toast.failedAddToQueue'), 'error');
     }
-    showToast($t('toast.playingTracksNext', { values: { count: tracks.length } }), 'success');
   }
 
   async function queuePlaylistLaterById(playlistId: number) {
@@ -2152,25 +2158,27 @@
     if (playableTracks.length === 0) return;
 
     const artwork = album.artwork || '';
-    // Add in reverse order so first track ends up right after current
-    for (let i = playableTracks.length - 1; i >= 0; i--) {
-      const trk = playableTracks[i];
-      queueTrackNext({
-        id: trk.id,
-        title: trk.title,
-        artist: trk.artist || album.artist || 'Unknown Artist',
-        album: album.title || '',
-        duration_secs: trk.durationSeconds,
-        artwork_url: artwork || null,
-        hires: trk.hires ?? false,
-        bit_depth: trk.bitDepth ?? null,
-        sample_rate: trk.samplingRate ?? null,
-        is_local: false,
-        album_id: album.id,
-        artist_id: trk.artistId ?? album.artistId
-      });
+    const queueTracks: BackendQueueTrack[] = playableTracks.map(trk => ({
+      id: trk.id,
+      title: trk.title,
+      artist: trk.artist || album.artist || 'Unknown Artist',
+      album: album.title || '',
+      duration_secs: trk.durationSeconds,
+      artwork_url: artwork || null,
+      hires: trk.hires ?? false,
+      bit_depth: trk.bitDepth ?? null,
+      sample_rate: trk.samplingRate ?? null,
+      is_local: false,
+      album_id: album.id,
+      artist_id: trk.artistId ?? album.artistId
+    }));
+
+    const success = await addTracksToQueueNext(queueTracks);
+    if (success) {
+      showToast($t('toast.playingTracksNext', { values: { count: queueTracks.length } }), 'success');
+    } else {
+      showToast($t('toast.failedAddToQueue'), 'error');
     }
-    showToast($t('toast.playingTracksNext', { values: { count: playableTracks.length } }), 'success');
   }
 
   // Add all album tracks to end of queue
