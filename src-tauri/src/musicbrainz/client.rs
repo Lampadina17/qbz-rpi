@@ -699,6 +699,228 @@ impl MusicBrainzClient {
             .map_err(|e| format!("Failed to parse MusicBrainz response: {}", e))
     }
 
+    /// Look up an area and its parent relationships.
+    ///
+    /// Used to resolve city → subdivision (e.g., Leyton → England).
+    /// Returns the area detail with `relations` that include "part of" links.
+    pub async fn get_area_with_relations(
+        &self,
+        area_id: &str,
+    ) -> Result<AreaDetailResponse, String> {
+        if !self.is_enabled().await {
+            return Err("MusicBrainz integration is disabled".to_string());
+        }
+
+        self.rate_limiter.wait().await;
+
+        let base_url = self.base_url().await;
+        let url = format!(
+            "{}/area/{}?inc=area-rels&fmt=json",
+            base_url, area_id
+        );
+
+        log::debug!("MusicBrainz area lookup with relations: {}", area_id);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("MusicBrainz request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(format!("MusicBrainz API error {}: {}", status, text));
+        }
+
+        response
+            .json::<AreaDetailResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse MusicBrainz area response: {}", e))
+    }
+
+    /// Resolve a city area to its parent subdivision (state/region).
+    ///
+    /// Uses MB area-rels "part of" with direction "forward" to go UP:
+    ///   Los Angeles → "part of" (forward) → California (subdivision)
+    ///   Leyton → "part of" (forward) → Waltham Forest → (forward) → England
+    ///
+    /// If the direct parent is too granular (district/municipality), walks
+    /// up one more level to find a proper subdivision.
+    pub async fn resolve_parent_subdivision(
+        &self,
+        area_id: &str,
+    ) -> Result<Option<(String, String)>, String> {
+        let detail = self.get_area_with_relations(area_id).await?;
+
+        // Collect PARENT relations only (direction "forward" = "I am part of X")
+        let parents: Vec<_> = detail
+            .relations
+            .as_ref()
+            .map(|rels| {
+                rels.iter()
+                    .filter(|rel| {
+                        rel.relation_type == "part of"
+                            && rel.direction.as_deref() == Some("forward")
+                    })
+                    .filter_map(|rel| rel.area.as_ref())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if parents.is_empty() {
+            log::info!(
+                "No parent found for area '{}' ({}), type={:?}",
+                detail.name,
+                area_id,
+                detail.area_type
+            );
+            return Ok(None);
+        }
+
+        // Log all parents for debugging
+        for parent in &parents {
+            log::info!(
+                "  Parent of '{}': '{}' ({}) type={:?}",
+                detail.name,
+                parent.name,
+                parent.id,
+                parent.area_type
+            );
+        }
+
+        // Priority 1: Find a subdivision parent
+        if let Some(subdiv) = parents.iter().find(|p| {
+            p.area_type
+                .as_deref()
+                .map(|t| t.eq_ignore_ascii_case("subdivision"))
+                .unwrap_or(false)
+        }) {
+            log::info!(
+                "Resolved '{}' → subdivision '{}' ({})",
+                detail.name,
+                subdiv.name,
+                subdiv.id
+            );
+            return Ok(Some((subdiv.name.clone(), subdiv.id.clone())));
+        }
+
+        // Priority 2: Find a non-country, non-city parent (could be a region/state
+        // with a different type label)
+        if let Some(region) = parents.iter().find(|p| {
+            let t = p.area_type.as_deref().unwrap_or("");
+            !t.is_empty()
+                && !t.eq_ignore_ascii_case("country")
+                && !t.eq_ignore_ascii_case("city")
+                && !t.eq_ignore_ascii_case("municipality")
+        }) {
+            log::info!(
+                "Resolved '{}' → {} '{}' ({})",
+                detail.name,
+                region.area_type.as_deref().unwrap_or("unknown"),
+                region.name,
+                region.id
+            );
+            return Ok(Some((region.name.clone(), region.id.clone())));
+        }
+
+        // Priority 3: If the only parent is a country, check if the original area
+        // is already a subdivision — in that case, use it as-is
+        if let Some(country_parent) = parents.iter().find(|p| {
+            p.area_type
+                .as_deref()
+                .map(|t| t.eq_ignore_ascii_case("country"))
+                .unwrap_or(false)
+        }) {
+            let own_type = detail.area_type.as_deref().unwrap_or("");
+            if own_type.eq_ignore_ascii_case("subdivision") {
+                // Area is already a subdivision (e.g., California, England)
+                log::info!(
+                    "'{}' is already a subdivision (parent: {}), using as-is",
+                    detail.name,
+                    country_parent.name
+                );
+                return Ok(None); // Don't resolve, the original name is fine
+            }
+
+            // Parent is directly a country — the area might be a district/borough.
+            // Try walking up ONE more level from one of the non-country parents.
+            // This handles: Leyton → Waltham Forest (district) → ... → England
+            // But if only parent is country, just skip resolution.
+            log::info!(
+                "Only parent of '{}' is country '{}', no intermediate subdivision",
+                detail.name,
+                country_parent.name
+            );
+        }
+
+        // Priority 4: If parent is a district/municipality, walk up one more level
+        if let Some(district) = parents.first() {
+            let parent_type = district.area_type.as_deref().unwrap_or("");
+            if parent_type.eq_ignore_ascii_case("district")
+                || parent_type.eq_ignore_ascii_case("municipality")
+                || parent_type.eq_ignore_ascii_case("city")
+            {
+                log::info!(
+                    "Parent '{}' is a {}, walking up one more level...",
+                    district.name,
+                    parent_type
+                );
+                // Walk up one level: resolve the parent's parent (non-recursive)
+                let grandparent = self.get_area_with_relations(&district.id).await?;
+                let gp_parents: Vec<_> = grandparent
+                    .relations
+                    .as_ref()
+                    .map(|rels| {
+                        rels.iter()
+                            .filter(|r| {
+                                r.relation_type == "part of"
+                                    && r.direction.as_deref() == Some("forward")
+                            })
+                            .filter_map(|r| r.area.as_ref())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Find subdivision among grandparents
+                if let Some(subdiv) = gp_parents.iter().find(|p| {
+                    p.area_type
+                        .as_deref()
+                        .map(|t| t.eq_ignore_ascii_case("subdivision"))
+                        .unwrap_or(false)
+                }) {
+                    log::info!(
+                        "Resolved '{}' → '{}' → subdivision '{}' ({})",
+                        detail.name,
+                        district.name,
+                        subdiv.name,
+                        subdiv.id
+                    );
+                    return Ok(Some((subdiv.name.clone(), subdiv.id.clone())));
+                }
+
+                // If no subdivision, use the grandparent district's non-country parent
+                if let Some(region) = gp_parents.iter().find(|p| {
+                    let t = p.area_type.as_deref().unwrap_or("");
+                    !t.is_empty() && !t.eq_ignore_ascii_case("country")
+                }) {
+                    log::info!(
+                        "Resolved '{}' → '{}' → {} '{}' ({})",
+                        detail.name,
+                        district.name,
+                        region.area_type.as_deref().unwrap_or("unknown"),
+                        region.name,
+                        region.id
+                    );
+                    return Ok(Some((region.name.clone(), region.id.clone())));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Escape special characters in Lucene queries
     fn escape_query(s: &str) -> String {
         s.replace('\\', "\\\\")

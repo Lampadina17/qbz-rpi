@@ -8832,17 +8832,55 @@ pub async fn v2_discover_artists_by_location(
         .check_requirements(CommandRequirement::RequiresCoreBridgeAuth)
         .await?;
 
-    // Build display name for headers: "Country, City" or just area_name
-    let display_name = if let Some(ref c) = country {
-        format!("{}, {}", c, area_name)
+    // Step 0: Smart area resolution — resolve city → subdivision for broader results
+    // e.g., Leyton → England, Seattle → Washington
+    let (search_name, display_name) = if let Some(ref aid) = area_id {
+        // Try to resolve city to parent subdivision
+        match state.client.resolve_parent_subdivision(aid).await {
+            Ok(Some((subdivision_name, _subdivision_id))) => {
+                let display = if let Some(ref c) = country {
+                    format!("{}, {}", c, subdivision_name)
+                } else {
+                    subdivision_name.clone()
+                };
+                log::info!(
+                    "[V2] Area resolved: '{}' → subdivision '{}'",
+                    area_name,
+                    subdivision_name
+                );
+                (subdivision_name, display)
+            }
+            Ok(None) => {
+                // No subdivision found, use area_name as-is
+                let display = if let Some(ref c) = country {
+                    format!("{}, {}", c, area_name)
+                } else {
+                    area_name.clone()
+                };
+                (area_name.clone(), display)
+            }
+            Err(e) => {
+                log::warn!("[V2] Area resolution failed: {}, using '{}' directly", e, area_name);
+                let display = if let Some(ref c) = country {
+                    format!("{}, {}", c, area_name)
+                } else {
+                    area_name.clone()
+                };
+                (area_name.clone(), display)
+            }
+        }
     } else {
-        area_name.clone()
+        let display = if let Some(ref c) = country {
+            format!("{}, {}", c, area_name)
+        } else {
+            area_name.clone()
+        };
+        (area_name.clone(), display)
     };
 
     log::info!(
-        "[V2] discover_artists_by_location: area={:?} search_name={} display={} genres={:?} offset={}",
-        area_id,
-        area_name,
+        "[V2] discover_artists_by_location: search='{}' display='{}' genres={:?} offset={}",
+        search_name,
         display_name,
         genres,
         offset
@@ -8860,7 +8898,7 @@ pub async fn v2_discover_artists_by_location(
     };
 
     // Build cache key from area + seeds — TEMPORARILY UNUSED
-    let _cache_key_area = area_id.as_deref().unwrap_or(&area_name);
+    let _cache_key_area = area_id.as_deref().unwrap_or(&search_name);
     let _cache_key = build_scene_cache_key(_cache_key_area, &source_seeds);
 
     // Step 1: Check scene cache — TEMPORARILY DISABLED for tuning
@@ -8906,12 +8944,12 @@ pub async fn v2_discover_artists_by_location(
 
     // Deduplicate candidates across genre queries: mbid -> (name, score_sum, genre_hits, tags)
     let mut candidate_map: HashMap<String, (String, i32, usize, Vec<String>)> = HashMap::new();
-    let per_genre_limit = 50; // Get up to 50 per genre query
+    let per_genre_limit = 100; // Get up to 100 per genre query for broader coverage
 
     for genre in &search_genres {
         let search_result = state
             .client
-            .search_artists_by_tag_and_area(genre, &area_name, per_genre_limit, 0)
+            .search_artists_by_tag_and_area(genre, &search_name, per_genre_limit, 0)
             .await;
 
         match search_result {
@@ -8945,7 +8983,7 @@ pub async fn v2_discover_artists_by_location(
                         .begin_area
                         .as_ref()
                         .map(|ba| {
-                            ba.name.eq_ignore_ascii_case(&area_name)
+                            ba.name.eq_ignore_ascii_case(&search_name)
                                 || area_id
                                     .as_deref()
                                     .map(|aid| ba.id == aid)
@@ -8956,7 +8994,7 @@ pub async fn v2_discover_artists_by_location(
                     let same_country = artist
                         .area
                         .as_ref()
-                        .map(|a| a.name.eq_ignore_ascii_case(&area_name))
+                        .map(|a| a.name.eq_ignore_ascii_case(&search_name))
                         .unwrap_or(false);
 
                     let score = compute_affinity_score(
