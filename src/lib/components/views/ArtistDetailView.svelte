@@ -31,6 +31,7 @@
     toggleTrackFavorite
   } from '$lib/stores/favoritesStore';
   import { tick, onMount, onDestroy } from 'svelte';
+  import { getUserItem, setUserItem } from '$lib/utils/userStorage';
   import ImageLightbox from '../ImageLightbox.svelte';
 
   interface Track {
@@ -331,7 +332,7 @@
 
   function loadAlbumSortMode(key: string, fallback: AlbumSortMode = 'default'): AlbumSortMode {
     try {
-      const value = localStorage.getItem(key);
+      const value = getUserItem(key);
       if (value && sortOptions.includes(value as AlbumSortMode)) {
         return value as AlbumSortMode;
       }
@@ -538,17 +539,17 @@
     loadArtistAlbumDownloadStatuses();
   });
 
-  // Persist sort mode changes to localStorage
+  // Persist sort mode changes to user-scoped storage
   $effect(() => {
     try {
-      localStorage.setItem(STORAGE_SORT_KEYS.ALBUMS, albumSortMode);
-      localStorage.setItem(STORAGE_SORT_KEYS.EPS_SINGLES, epsSinglesSortMode);
-      localStorage.setItem(STORAGE_SORT_KEYS.LIVE_ALBUMS, liveAlbumsSortMode);
-      localStorage.setItem(STORAGE_SORT_KEYS.COMPILATIONS, compilationsSortMode);
-      localStorage.setItem(STORAGE_SORT_KEYS.TRIBUTES, tributesSortMode);
-      localStorage.setItem(STORAGE_SORT_KEYS.OTHERS, othersSortMode);
+      setUserItem(STORAGE_SORT_KEYS.ALBUMS, albumSortMode);
+      setUserItem(STORAGE_SORT_KEYS.EPS_SINGLES, epsSinglesSortMode);
+      setUserItem(STORAGE_SORT_KEYS.LIVE_ALBUMS, liveAlbumsSortMode);
+      setUserItem(STORAGE_SORT_KEYS.COMPILATIONS, compilationsSortMode);
+      setUserItem(STORAGE_SORT_KEYS.TRIBUTES, tributesSortMode);
+      setUserItem(STORAGE_SORT_KEYS.OTHERS, othersSortMode);
     } catch {
-      // localStorage not available
+      // storage not available
     }
   });
 

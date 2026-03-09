@@ -130,7 +130,7 @@
     getAuthState,
     type UserInfo
   } from '$lib/stores/authStore';
-  import { setStorageUserId, migrateLocalStorage, getUserItem, setUserItem } from '$lib/utils/userStorage';
+  import { setStorageUserId, migrateLocalStorage, migrateLocalStorageV2, getUserItem, setUserItem } from '$lib/utils/userStorage';
 
   // Favorites state management
   import { loadFavorites } from '$lib/stores/favoritesStore';
@@ -2750,6 +2750,7 @@
     // Set up per-user localStorage scoping and migrate old keys
     setStorageUserId(info.userId);
     migrateLocalStorage(info.userId);
+    migrateLocalStorageV2(info.userId);
 
     // Re-read stores that were initialised at module-load (before userId was set)
     rehydratePurchasesStore();

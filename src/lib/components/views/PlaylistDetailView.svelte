@@ -26,6 +26,7 @@
   import { sanitizeHtml } from '$lib/utils/sanitize';
   import { t } from '$lib/i18n';
   import { onMount, tick } from 'svelte';
+  import { getUserItem, setUserItem } from '$lib/utils/userStorage';
 
   interface PlaylistTrack {
     id: number;
@@ -311,12 +312,12 @@
   let replacementModalOpen = $state(false);
   let trackToReplace = $state<DisplayTrack | null>(null);
 
-  // Track copied playlists in localStorage
+  // Track copied playlists in user-scoped storage
   const COPIED_PLAYLISTS_KEY = 'qbz_copied_playlists';
 
   function getCopiedPlaylists(): Set<number> {
     try {
-      const stored = localStorage.getItem(COPIED_PLAYLISTS_KEY);
+      const stored = getUserItem(COPIED_PLAYLISTS_KEY);
       return stored ? new Set(JSON.parse(stored)) : new Set();
     } catch {
       return new Set();
@@ -326,7 +327,7 @@
   function markPlaylistAsCopied(id: number) {
     const copied = getCopiedPlaylists();
     copied.add(id);
-    localStorage.setItem(COPIED_PLAYLISTS_KEY, JSON.stringify([...copied]));
+    setUserItem(COPIED_PLAYLISTS_KEY, JSON.stringify([...copied]));
     isCopied = true;
   }
 
