@@ -8982,9 +8982,9 @@ pub async fn v2_discover_artists_by_location(
         match search_result {
             Ok(response) => {
                 log::info!(
-                    "[V2] tag:'{}' + area:'{}' returned {} artists",
+                    "[V2] tag:'{}' + country:'{}' returned {} artists",
                     genre,
-                    search_name,
+                    country.as_deref().unwrap_or(&search_name),
                     response.artists.len()
                 );
 

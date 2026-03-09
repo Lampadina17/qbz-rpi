@@ -384,12 +384,13 @@ impl MusicBrainzClient {
             .map_err(|e| format!("Failed to parse MusicBrainz response: {}", e))
     }
 
-    /// Search artists by tag AND area (genre + location combined).
+    /// Search artists by tag AND country.
     ///
-    /// Uses MB Lucene query combining tag with area terms.
-    /// When country is provided, searches: tag AND (beginarea OR area OR area:country)
-    /// This ensures artists with beginarea:"London" + area:"United Kingdom" are found
-    /// when searching for the "England" subdivision.
+    /// MB Lucene doesn't support hierarchical area search, so searching
+    /// by subdivision (e.g., "England") misses artists whose area is set
+    /// to "United Kingdom". We search by country directly:
+    ///   tag:"heavy metal" AND area:"United Kingdom"
+    /// The scoring layer handles regional relevance.
     pub async fn search_artists_by_tag_and_area(
         &self,
         tag: &str,
@@ -407,30 +408,16 @@ impl MusicBrainzClient {
         let base_url = self.base_url().await;
         let limit = limit.min(100).max(1);
         let escaped_tag = Self::escape_query(tag);
-        let escaped_area = Self::escape_query(area_name);
 
-        // Build area clause: include country if different from area_name
-        let area_clause = if let Some(c) = country {
-            if !c.eq_ignore_ascii_case(area_name) {
-                let escaped_country = Self::escape_query(c);
-                format!(
-                    "(beginarea:\"{}\" OR area:\"{}\" OR area:\"{}\")",
-                    escaped_area, escaped_area, escaped_country
-                )
-            } else {
-                format!(
-                    "(beginarea:\"{}\" OR area:\"{}\")",
-                    escaped_area, escaped_area
-                )
-            }
-        } else {
-            format!(
-                "(beginarea:\"{}\" OR area:\"{}\")",
-                escaped_area, escaped_area
-            )
-        };
+        // Use country for area search when available (most artists have area=country in MB)
+        // Fall back to area_name if no country provided
+        let search_area = country.unwrap_or(area_name);
+        let escaped_area = Self::escape_query(search_area);
 
-        let query = format!("tag:\"{}\" AND {}", escaped_tag, area_clause);
+        let query = format!(
+            "tag:\"{}\" AND area:\"{}\"",
+            escaped_tag, escaped_area
+        );
         let url = format!(
             "{}/artist?query={}&fmt=json&limit={}&offset={}",
             base_url,
