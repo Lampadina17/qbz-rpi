@@ -8819,6 +8819,7 @@ pub async fn v2_discover_artists_by_location(
     bridge: State<'_, CoreBridgeState>,
     blacklist_state: State<'_, BlacklistState>,
     runtime: State<'_, RuntimeManagerState>,
+    app: tauri::AppHandle,
 ) -> Result<crate::musicbrainz::LocationDiscoveryResponse, RuntimeError> {
     use crate::musicbrainz::genre_normalization::{extract_affinity_seeds, genre_summary, is_broad_genre};
     use crate::musicbrainz::location_discovery::{build_scene_cache_key, compute_affinity_score};
@@ -8969,7 +8970,15 @@ pub async fn v2_discover_artists_by_location(
     let mut candidate_map: HashMap<String, (String, i32, usize, Vec<String>)> = HashMap::new();
     let per_genre_limit = 200; // Get up to 200 per genre query for broader coverage
 
-    for genre in &search_genres {
+    let total_genres = search_genres.len();
+    for (genre_idx, genre) in search_genres.iter().enumerate() {
+        // Progress: MB search phase = 0-40%
+        let progress = ((genre_idx as f64 / total_genres as f64) * 40.0) as u8;
+        let _ = app.emit("scene-discovery-progress", serde_json::json!({
+            "phase": "searching",
+            "progress": progress,
+            "detail": genre
+        }));
         let search_result = state
             .client
             .search_artists_by_tag_and_area(genre, &search_name, country.as_deref(), per_genre_limit, 0)
@@ -9096,9 +9105,25 @@ pub async fn v2_discover_artists_by_location(
     // Step 4: Validate against Qobuz
     let bridge_guard = bridge.try_get().await;
     let mut validated: Vec<LocationCandidate> = Vec::new();
+    let total_to_validate = candidates_to_validate.len();
+
+    let _ = app.emit("scene-discovery-progress", serde_json::json!({
+        "phase": "validating",
+        "progress": 40,
+        "detail": format!("{} candidates", total_to_validate)
+    }));
 
     if let Some(ref core_bridge) = bridge_guard {
-        for (mbid, mb_name, candidate_genres, score) in &candidates_to_validate {
+        for (validate_idx, (mbid, mb_name, candidate_genres, score)) in candidates_to_validate.iter().enumerate() {
+            // Progress: Qobuz validation phase = 40-95%
+            if validate_idx % 5 == 0 {
+                let progress = 40 + ((validate_idx as f64 / total_to_validate as f64) * 55.0) as u8;
+                let _ = app.emit("scene-discovery-progress", serde_json::json!({
+                    "phase": "validating",
+                    "progress": progress,
+                    "detail": format!("{}/{}", validate_idx, total_to_validate)
+                }));
+            }
             // Qobuz validation cache — TEMPORARILY DISABLED for tuning
             let _name_normalized =
                 crate::musicbrainz::cache::MusicBrainzCache::normalize_name(mb_name);
@@ -9163,6 +9188,12 @@ pub async fn v2_discover_artists_by_location(
             }
         }
     }
+
+    let _ = app.emit("scene-discovery-progress", serde_json::json!({
+        "phase": "done",
+        "progress": 100,
+        "detail": format!("{} artists", validated.len())
+    }));
 
     log::info!(
         "[V2] Scene discovery complete: {} validated artists from {}",

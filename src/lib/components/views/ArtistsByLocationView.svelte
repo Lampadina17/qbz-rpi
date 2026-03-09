@@ -2,7 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { t } from '$lib/i18n';
   import { invoke } from '@tauri-apps/api/core';
-  import { ArrowLeft, Loader2, Music, Search, X, LayoutGrid, PanelLeftClose, Mic2, Disc3, ChevronDown, Filter } from 'lucide-svelte';
+  import { listen } from '@tauri-apps/api/event';
+  import { ArrowLeft, Loader2, Music, Search, X, LayoutGrid, PanelLeftClose, Mic2, Disc3, ChevronDown, Filter, Globe, Share2 } from 'lucide-svelte';
   import VirtualizedFavoritesArtistGrid from '../VirtualizedFavoritesArtistGrid.svelte';
   import VirtualizedFavoritesArtistList from '../VirtualizedFavoritesArtistList.svelte';
   import AlbumCard from '../AlbumCard.svelte';
@@ -97,37 +98,56 @@
   let loadingAlbums = $state(false);
   let albumsError = $state<string | null>(null);
 
-  // Dynamic loading state
-  let loadingStep = $state(0);
-  let loadingStepTimer: ReturnType<typeof setInterval> | null = null;
+  // Loading progress state
+  let loadingProgress = $state(0);
+  let loadingPhase = $state('searching');
+  let loadingDetail = $state('');
+  let loadingIconIndex = $state(0);
+  let iconCycleTimer: ReturnType<typeof setInterval> | null = null;
+  let progressUnlisten: (() => void) | null = null;
 
-  const loadingSteps = [
-    () => {
-      const genre = context.affinitySeeds.genres[0] || context.affinitySeeds.tags[0] || 'music';
-      return $t('artist.sceneStep1', { values: { genre } });
-    },
-    () => {
-      const genres = context.affinitySeeds.genres.slice(0, 3);
-      const count = genres.length * 50;
-      return $t('artist.sceneStep2', { values: { count: String(count) } });
-    },
-    () => $t('artist.sceneStep3'),
-    () => $t('artist.sceneStep4'),
-  ];
+  // Icon cycle: Music → Globe → Share2 (network-like)
+  const LOADING_ICONS = ['music', 'globe', 'network'] as const;
 
   function startLoadingAnimation() {
-    loadingStep = 0;
-    loadingStepTimer = setInterval(() => {
-      if (loadingStep < loadingSteps.length - 1) {
-        loadingStep++;
-      }
-    }, 3000);
+    loadingIconIndex = 0;
+    iconCycleTimer = setInterval(() => {
+      loadingIconIndex = (loadingIconIndex + 1) % LOADING_ICONS.length;
+    }, 1500);
   }
 
   function stopLoadingAnimation() {
-    if (loadingStepTimer) {
-      clearInterval(loadingStepTimer);
-      loadingStepTimer = null;
+    if (iconCycleTimer) {
+      clearInterval(iconCycleTimer);
+      iconCycleTimer = null;
+    }
+  }
+
+  async function setupProgressListener() {
+    progressUnlisten = await listen<{ phase: string; progress: number; detail: string }>('scene-discovery-progress', (event) => {
+      loadingProgress = event.payload.progress;
+      loadingPhase = event.payload.phase;
+      loadingDetail = event.payload.detail;
+    });
+  }
+
+  function cleanupProgressListener() {
+    if (progressUnlisten) {
+      progressUnlisten();
+      progressUnlisten = null;
+    }
+  }
+
+  function getPhaseLabel(): string {
+    switch (loadingPhase) {
+      case 'searching':
+        return $t('artist.sceneStep1', { values: { genre: loadingDetail || 'music' } });
+      case 'validating':
+        return $t('artist.sceneStep3');
+      case 'done':
+        return $t('artist.sceneStep4');
+      default:
+        return $t('artist.sceneStep1', { values: { genre: 'music' } });
     }
   }
 
@@ -350,47 +370,54 @@
   onMount(async () => {
     loading = true;
     error = null;
+    loadingProgress = 0;
+    loadingPhase = 'searching';
+    await setupProgressListener();
     startLoadingAnimation();
     await discoverArtists();
     stopLoadingAnimation();
+    cleanupProgressListener();
     loading = false;
   });
 
   onDestroy(() => {
     stopLoadingAnimation();
+    cleanupProgressListener();
   });
 </script>
 
 <div class="scene-view">
-  <!-- Top bar with back button -->
-  <div class="top-bar">
-    <button class="back-btn" onclick={onBack}>
-      <ArrowLeft size={16} />
-      <span>{$t('actions.back')}</span>
-    </button>
-  </div>
-
-  <!-- Hero header with flag -->
-  <div class="hero-header">
-    {#if flagUrl}
-      <div class="flag-wrapper">
-        <img src={flagUrl} alt="" class="flag-image" />
-      </div>
-    {/if}
-    <div class="hero-info">
-      <h1>{sceneLabel || context.location.country || context.location.displayName}</h1>
-      {#if genreSummary || context.affinitySeeds.genres.length > 0}
-        <p class="hero-subtitle">
-          {$t('artist.sceneBased', {
-            values: {
-              artist: context.sourceArtistName,
-              genres: genreSummary || context.affinitySeeds.genres.slice(0, 3).join(' / '),
-            },
-          })}
-        </p>
-      {/if}
+  {#if !loading}
+    <!-- Top bar with back button -->
+    <div class="top-bar">
+      <button class="back-btn" onclick={onBack}>
+        <ArrowLeft size={16} />
+        <span>{$t('actions.back')}</span>
+      </button>
     </div>
-  </div>
+
+    <!-- Hero header with flag -->
+    <div class="hero-header">
+      {#if flagUrl}
+        <div class="flag-wrapper">
+          <img src={flagUrl} alt="" class="flag-image" />
+        </div>
+      {/if}
+      <div class="hero-info">
+        <h1>{sceneLabel || context.location.country || context.location.displayName}</h1>
+        {#if genreSummary || context.affinitySeeds.genres.length > 0}
+          <p class="hero-subtitle">
+            {$t('artist.sceneBased', {
+              values: {
+                artist: context.sourceArtistName,
+                genres: genreSummary || context.affinitySeeds.genres.slice(0, 3).join(' / '),
+              },
+            })}
+          </p>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <!-- Nav bar with search + controls -->
   {#if !loading && !error && allArtists.length > 0}
@@ -518,20 +545,27 @@
       <div class="scene-loading">
         <div class="loading-visual">
           <div class="loading-pulse">
-            <Music size={28} />
+            {#key loadingIconIndex}
+              <span class="icon-fade">
+                {#if LOADING_ICONS[loadingIconIndex] === 'music'}
+                  <Music size={42} />
+                {:else if LOADING_ICONS[loadingIconIndex] === 'globe'}
+                  <Globe size={42} />
+                {:else}
+                  <Share2 size={42} />
+                {/if}
+              </span>
+            {/key}
           </div>
         </div>
-        <div class="loading-status">
-          {#key loadingStep}
-            <span class="loading-text fade-in">
-              {loadingSteps[loadingStep]()}
-            </span>
-          {/key}
+
+        <div class="loading-progress-bar">
+          <div class="loading-progress-fill" style="width: {loadingProgress}%"></div>
         </div>
-        <div class="loading-dots">
-          <span class="dot"></span>
-          <span class="dot"></span>
-          <span class="dot"></span>
+
+        <div class="loading-status">
+          <span class="loading-text">{getPhaseLabel()}</span>
+          <span class="loading-percent">{loadingProgress}%</span>
         </div>
       </div>
     {:else if error}
@@ -1182,8 +1216,8 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 20px;
-    padding: 100px 0;
+    gap: 24px;
+    flex: 1;
   }
 
   .loading-visual {
@@ -1196,24 +1230,51 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 64px;
-    height: 64px;
+    width: 96px;
+    height: 96px;
     border-radius: 50%;
     background: var(--bg-secondary);
     color: var(--accent-primary);
     animation: pulse 2s ease-in-out infinite;
   }
 
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.8; }
-    50% { transform: scale(1.08); opacity: 1; }
-  }
-
-  .loading-status {
-    min-height: 20px;
+  .icon-fade {
     display: flex;
     align-items: center;
     justify-content: center;
+    animation: iconFadeIn 400ms ease-out;
+  }
+
+  @keyframes iconFadeIn {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.06); opacity: 1; }
+  }
+
+  .loading-progress-bar {
+    width: 280px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+  }
+
+  .loading-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent-primary);
+    transition: width 300ms ease-out;
+  }
+
+  .loading-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
   }
 
   .loading-text {
@@ -1223,34 +1284,10 @@
     line-height: 1.4;
   }
 
-  .fade-in {
-    animation: fadeIn 400ms ease-out;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .loading-dots {
-    display: flex;
-    gap: 6px;
-  }
-
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    animation: dotBounce 1.4s ease-in-out infinite;
-  }
-
-  .dot:nth-child(2) { animation-delay: 0.2s; }
-  .dot:nth-child(3) { animation-delay: 0.4s; }
-
-  @keyframes dotBounce {
-    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-    40% { opacity: 1; transform: scale(1); }
+  .loading-percent {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
   }
 
   /* Error and empty states */
