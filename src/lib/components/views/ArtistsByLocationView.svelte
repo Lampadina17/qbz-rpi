@@ -88,6 +88,7 @@
   let searchExpanded = $state(false);
   let groupingEnabled = $state(false);
   let showGroupMenu = $state(false);
+  let activeGenreFilters = $state<Set<string>>(new Set());
 
   // Sidepanel state
   let selectedArtist = $state<FavoriteArtist | null>(null);
@@ -158,12 +159,64 @@
     return map;
   });
 
-  // Client-side search filter
+  // Lookup: qobuz_id -> genres for filtering
+  let genresByQobuzId = $derived.by(() => {
+    const map = new Map<number, string[]>();
+    for (const candidate of artists) {
+      if (candidate.qobuz_id != null) {
+        map.set(candidate.qobuz_id, candidate.genres);
+      }
+    }
+    return map;
+  });
+
+  // All unique genres across results, sorted by frequency (most common first)
+  let availableGenres = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const candidate of artists) {
+      for (const genre of candidate.genres) {
+        counts.set(genre, (counts.get(genre) || 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([genre]) => genre);
+  });
+
+  function toggleGenreFilter(genre: string) {
+    const next = new Set(activeGenreFilters);
+    if (next.has(genre)) {
+      next.delete(genre);
+    } else {
+      next.add(genre);
+    }
+    activeGenreFilters = next;
+  }
+
+  function clearGenreFilters() {
+    activeGenreFilters = new Set();
+  }
+
+  // Client-side search + genre filter
   let allArtists = $derived(candidatesToFavoriteArtists(artists));
   let filteredArtists = $derived.by(() => {
-    if (!searchQuery.trim()) return allArtists;
-    const query = searchQuery.toLowerCase();
-    return allArtists.filter((artist) => artist.name.toLowerCase().includes(query));
+    let result = allArtists;
+
+    // Genre filter: artist must have ALL selected genres
+    if (activeGenreFilters.size > 0) {
+      result = result.filter((artist) => {
+        const artistGenres = genresByQobuzId.get(artist.id) || [];
+        return [...activeGenreFilters].every((g) => artistGenres.includes(g));
+      });
+    }
+
+    // Text search
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((artist) => artist.name.toLowerCase().includes(query));
+    }
+
+    return result;
   });
 
   // Grouping
@@ -343,7 +396,7 @@
     <div class="favorites-nav">
       <div class="nav-left">
         <span class="results-count">
-          {filteredArtists.length}{searchQuery ? ` / ${allArtists.length}` : ''} artists
+          {filteredArtists.length}{(searchQuery || activeGenreFilters.size > 0) ? ` / ${allArtists.length}` : ''} artists
         </span>
       </div>
       <div class="nav-right">
@@ -419,6 +472,27 @@
           </div>
         {/if}
       </div>
+    </div>
+  {/if}
+
+  <!-- Genre filter pills -->
+  {#if !loading && !error && availableGenres.length > 1}
+    <div class="genre-filters">
+      {#if activeGenreFilters.size > 0}
+        <button class="genre-pill active clear-pill" onclick={clearGenreFilters}>
+          <X size={12} />
+          <span>{$t('actions.clearAll')}</span>
+        </button>
+      {/if}
+      {#each availableGenres as genre}
+        <button
+          class="genre-pill"
+          class:active={activeGenreFilters.has(genre)}
+          onclick={() => toggleGenreFilter(genre)}
+        >
+          {genre}
+        </button>
+      {/each}
     </div>
   {/if}
 
@@ -845,6 +919,56 @@
   .dropdown-item.selected {
     color: var(--accent-primary);
     font-weight: 600;
+  }
+
+  /* Genre filter pills */
+  .genre-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+
+  .genre-pill {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    border-radius: 16px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 150ms ease;
+    white-space: nowrap;
+  }
+
+  .genre-pill:hover {
+    border-color: var(--text-muted);
+    color: var(--text-secondary);
+  }
+
+  .genre-pill.active {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: var(--bg-primary);
+    font-weight: 600;
+  }
+
+  .genre-pill.active:hover {
+    opacity: 0.85;
+  }
+
+  .genre-pill.clear-pill {
+    background: var(--bg-secondary);
+    border-color: var(--text-muted);
+    color: var(--text-secondary);
+  }
+
+  .genre-pill.clear-pill:hover {
+    background: var(--bg-tertiary);
   }
 
   /* Content area */
