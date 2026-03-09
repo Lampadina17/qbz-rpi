@@ -86,6 +86,10 @@
   let paletteTarget: number[] = [...DEFAULT_PALETTE];
   let currentArtwork = '';
 
+  // Darkest color from artwork for corner vignette
+  let darkColor = { r: 8, g: 2, b: 12 };
+  let darkColorTarget = { r: 8, g: 2, b: 12 };
+
   function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
     r /= 255; g /= 255; b /= 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -144,6 +148,24 @@
     }
 
     paletteTarget = extracted;
+
+    // Find darkest pixel with some saturation (not pure black)
+    let darkestL = 1;
+    let darkR = 8, darkG = 2, darkB = 12;
+    for (let i = 0; i < data.length; i += 4) {
+      const pr = data[i], pg = data[i + 1], pb = data[i + 2];
+      const [, ds, dl] = rgbToHsl(pr, pg, pb);
+      if (dl < darkestL && dl > 0.02 && ds > 0.05) {
+        darkestL = dl;
+        darkR = pr; darkG = pg; darkB = pb;
+      }
+    }
+    // Clamp to very dark range so vignette stays subtle
+    darkColorTarget = {
+      r: Math.min(darkR, 40),
+      g: Math.min(darkG, 40),
+      b: Math.min(darkB, 40)
+    };
   }
 
   function loadArtworkPalette(src: string) {
@@ -152,7 +174,7 @@
     const img = new window.Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => extractPalette(img);
-    img.onerror = () => { paletteTarget = [...DEFAULT_PALETTE]; };
+    img.onerror = () => { paletteTarget = [...DEFAULT_PALETTE]; darkColorTarget = { r: 8, g: 2, b: 12 }; };
     img.src = src;
   }
 
@@ -165,6 +187,10 @@
       if (diff < -180) diff += 360;
       artPalette[i] = wrapHue(artPalette[i] + diff * 0.02);
     }
+    // Lerp dark color
+    darkColor.r += (darkColorTarget.r - darkColor.r) * 0.02;
+    darkColor.g += (darkColorTarget.g - darkColor.g) * 0.02;
+    darkColor.b += (darkColorTarget.b - darkColor.b) * 0.02;
   }
 
   // Get palette hue with time-based mutation
@@ -531,6 +557,61 @@
     ctx.fill();
   }
 
+  function drawCornerVignettes(
+    drawWidth: number,
+    drawHeight: number,
+    timeMs: number,
+    bass: number
+  ) {
+    if (!ctx) return;
+
+    const dr = Math.round(darkColor.r);
+    const dg = Math.round(darkColor.g);
+    const db = Math.round(darkColor.b);
+    const maxDim = Math.max(drawWidth, drawHeight);
+    // Base radius breathes gently with bass
+    const baseRadius = maxDim * (0.38 + bass * 0.06);
+
+    // Four corners with slight independent drift
+    const corners = [
+      { x: 0, y: 0 },                          // top-left
+      { x: drawWidth, y: 0 },                   // top-right
+      { x: 0, y: drawHeight },                  // bottom-left
+      { x: drawWidth, y: drawHeight },           // bottom-right
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+
+    for (let ci = 0; ci < corners.length; ci++) {
+      const corner = corners[ci];
+      // Subtle per-corner drift so they don't feel static
+      const drift = bass * maxDim * 0.012;
+      const ox = Math.sin(timeMs * 0.0006 + ci * 1.57) * drift;
+      const oy = Math.cos(timeMs * 0.0005 + ci * 2.1) * drift;
+      const cx = corner.x + ox;
+      const cy = corner.y + oy;
+
+      // Radius pulses slightly with bass per corner (phase-shifted)
+      const pulsePhase = timeMs * 0.0008 + ci * 1.2;
+      const radiusPulse = 1 + Math.sin(pulsePhase) * 0.04 * (1 + bass * 2);
+      const radius = baseRadius * radiusPulse;
+
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+      // Subtle alpha — slightly stronger at the bottom corners for text readability
+      const alphaBase = ci >= 2 ? 0.45 : 0.3;
+      const alphaOuter = alphaBase + bass * 0.08;
+      grad.addColorStop(0, `rgba(${dr}, ${dg}, ${db}, ${alphaOuter})`);
+      grad.addColorStop(0.5, `rgba(${dr}, ${dg}, ${db}, ${alphaOuter * 0.45})`);
+      grad.addColorStop(1, `rgba(${dr}, ${dg}, ${db}, 0)`);
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, drawWidth, drawHeight);
+    }
+
+    ctx.restore();
+  }
+
   function render(timestamp: number = 0) {
     if (!ctx || !canvasRef) return;
 
@@ -576,6 +657,7 @@
     drawCurvedTunnelWisps(centerX, centerY, minDim, timestamp, bass, mid, high, totalEnergy);
     drawRefractiveVeil(drawWidth, drawHeight, timestamp, bass, high);
     drawAbyss(centerX, centerY, minDim, bass, totalEnergy);
+    drawCornerVignettes(drawWidth, drawHeight, timestamp, bass);
 
     ctx.globalCompositeOperation = 'source-over';
     animationFrame = requestAnimationFrame(render);
