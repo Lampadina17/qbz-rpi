@@ -79,7 +79,6 @@ apps:
       - x11
       - unity7
       - gsettings
-      - pulseaudio
       - alsa
       - pipewire
     slots:

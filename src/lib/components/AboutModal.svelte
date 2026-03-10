@@ -99,7 +99,7 @@
             <span class="label">Version</span>
             <span class="value">{appVersion}</span>
             <span class="label">Codename</span>
-            <span class="value codename">La marrano de engorda</span>
+            <span class="value codename">Limpiando la casa</span>
             <span class="label">License</span>
             <span class="value">MIT</span>
             <span class="label">Platform</span>
