@@ -39,9 +39,9 @@
 
   // Constants
   const CARD_WIDTH = 160;
-  const CARD_HEIGHT = 200;
+  const CARD_HEIGHT = 230;
   const GAP = 24;
-  const ROW_GAP = 24;
+  const ROW_GAP = 22;
   const HEADER_HEIGHT = 44;
   const BUFFER_ITEMS = 5;
 
@@ -372,9 +372,8 @@
     color: var(--text-primary);
     text-align: center;
     overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     width: 100%;
     line-height: 1.3;
   }

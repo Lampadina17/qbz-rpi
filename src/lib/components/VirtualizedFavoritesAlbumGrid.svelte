@@ -436,8 +436,7 @@
 
   .album-grid-row {
     display: flex;
-    flex-wrap: wrap;
-    gap: 24px 22px;
+    gap: 22px;
   }
 
   /* List mode styles */
