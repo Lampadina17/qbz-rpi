@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>com.blitzfc.qbz</id>
   <name>QBZ</name>
-  <summary>Stream hi-res music from Qobuz with bit-perfect playback</summary>
+  <summary>Hi-fi music player for Qobuz</summary>
   <description>
     <p>
       QBZ is a native Qobuz client for Linux focused on reliable hi-res playback and desktop integration.
@@ -55,7 +55,7 @@
   <releases>
     <release version="1.1.19" date="2026-03-09">
       <description>
-        <p>Artist discovery with tag-scoped recommendations and thumbs-down dismissals. Artist network sidebar with auto-open, state persistence, and restore after queue/lyrics. Comet visualizer with album art color extraction, music-reactive intensity, silence fading, and corner vignettes. Tauri dependency sync fix for distro packagers. Cargo.lock now tracked in git.</p>
+        <p>Scene Discovery: explore artists from the same city or musical scene. Redesigned Home with 3 Discovery Tabs (Home, Editor's Picks, For You) with personalized radio stations, spotlight artist, and genre filtering. Neon visualizers (Laser, Tunnel, Comet) with album art color extraction. In-app PDF booklet viewer. Audio engine upgrade to rodio 0.22 with ALSA gapless playback. Security hardening and stability fixes.</p>
       </description>
     </release>
     <release version="1.1.18" date="2026-02-26">
