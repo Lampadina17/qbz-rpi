@@ -2253,26 +2253,6 @@
     right: 0;
   }
 
-  .tab-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 120px 0;
-    color: var(--text-muted);
-  }
-
-  .tab-placeholder h2 {
-    margin: 0;
-    font-size: 18px;
-    color: var(--text-secondary);
-  }
-
-  .tab-placeholder p {
-    margin: 0;
-    font-size: 14px;
-  }
 
   .settings-btn {
     display: flex;

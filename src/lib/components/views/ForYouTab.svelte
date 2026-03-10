@@ -883,9 +883,9 @@
                   </svg>
                 </div>
               {:else}
-                <button class="radio-overlay-play-btn" type="button">
+                <div class="radio-overlay-play-btn" role="button" tabindex="0">
                   <Play size={18} fill="white" color="white" />
-                </button>
+                </div>
               {/if}
             </div>
           </div>
@@ -1372,9 +1372,9 @@
                     </svg>
                   </div>
                 {:else}
-                  <button class="radio-overlay-play-btn" type="button">
+                  <div class="radio-overlay-play-btn" role="button" tabindex="0">
                     <Play size={18} fill="white" color="white" />
-                  </button>
+                  </div>
                 {/if}
               </div>
             </div>
@@ -1420,9 +1420,9 @@
                   </svg>
                 </div>
               {:else}
-                <button class="radio-overlay-play-btn" type="button">
+                <div class="radio-overlay-play-btn" role="button" tabindex="0">
                   <Play size={18} fill="white" color="white" />
-                </button>
+                </div>
               {/if}
             </div>
           </div>
