@@ -444,10 +444,15 @@
     }
   });
 
+  // Scroll state for sticky header
+  let isScrolled = $state(false);
+  const SCROLL_THRESHOLD = 60; // px before sticky header appears
+
   // Save scroll position incrementally
   function handleHomeScroll(e: Event) {
     const target = e.target as HTMLElement;
     updateHomeCacheScrollTop(target.scrollTop);
+    isScrolled = target.scrollTop > SCROLL_THRESHOLD;
   }
 
   function handleArtistImageError(artistId: number) {
@@ -880,8 +885,50 @@
 </script>
 
 <div class="home-view" bind:this={homeViewEl} onscroll={handleHomeScroll}>
+  <!-- Sticky compact header (visible on scroll) -->
+  <div class="sticky-header" class:visible={isScrolled}>
+    <div class="sticky-tabs">
+      <button
+        class="home-tab compact"
+        class:active={activeTab === 'home'}
+        onclick={() => switchTab('home')}
+      >
+        <Home size={13} />
+      </button>
+      <button
+        class="home-tab compact"
+        class:active={activeTab === 'editorPicks'}
+        onclick={() => switchTab('editorPicks')}
+      >
+        {$t('home.tabEditorPicks')}
+      </button>
+      <button
+        class="home-tab compact"
+        class:active={activeTab === 'forYou'}
+        onclick={() => switchTab('forYou')}
+      >
+        {$t('home.tabForYou')}
+      </button>
+    </div>
+    <div class="sticky-actions">
+      {#if activeTab === 'home'}
+        <button class="settings-btn" onclick={() => isSettingsModalOpen = true} title={$t('home.customizeHome')}>
+          <img
+            src="/home-gear.svg"
+            alt="Settings"
+            class="settings-icon"
+            width="18"
+            height="18"
+            style="width:18px;height:18px;filter:invert(1) opacity(0.8);"
+          />
+        </button>
+      {/if}
+      <GenreFilterButton onFilterChange={handleGenreFilterChange} context="home" variant="default" />
+    </div>
+  </div>
+
   <!-- Header with greeting + centered tabs + actions -->
-  <div class="home-header">
+  <div class="home-header" class:scrolled={isScrolled}>
     <div class="header-left">
       {#if homeSettings.greeting.enabled}
         <h2 class="greeting">{getGreetingText()}</h2>
@@ -1987,13 +2034,19 @@
     position: relative;
   }
 
-  /* Add spacing between sections - using :global to affect child components */
-  .home-view > :global(*:not(:first-child)) {
+  /* Sticky header (1st child) and main header (2nd child) have no top margin */
+  .home-view > :global(.sticky-header),
+  .home-view > :global(*:nth-child(2)) {
+    margin-top: 0 !important;
+  }
+
+  /* Add spacing between sections - skip sticky header and main header */
+  .home-view > :global(*:not(:nth-child(1)):not(:nth-child(2))) {
     margin-top: 60px !important;
   }
 
-  /* Second child (first section after header) gets less spacing */
-  .home-view > :global(*:nth-child(2)) {
+  /* Third child (first section after headers) gets less spacing */
+  .home-view > :global(*:nth-child(3)) {
     margin-top: 30px !important;
   }
 
@@ -2082,12 +2135,64 @@
     50% { opacity: 0.7; }
   }
 
+  /* ---- Sticky compact header ---- */
+  .sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 8px 0;
+    background: var(--bg-primary);
+    border-bottom: 1px solid transparent;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px);
+    transition: opacity 180ms ease, transform 180ms ease, border-color 180ms ease;
+    margin-left: -18px;
+    margin-right: -8px;
+    padding-left: 18px;
+    padding-right: 8px;
+  }
+
+  .sticky-header.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+    border-bottom-color: var(--border-subtle);
+  }
+
+  .sticky-tabs {
+    display: flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .sticky-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: absolute;
+    right: 8px;
+  }
+
+  .home-tab.compact {
+    padding: 5px 12px;
+    font-size: 12px;
+  }
+
   .greeting {
     font-size: 24px;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
     white-space: nowrap;
+    transition: opacity 180ms ease;
   }
 
   .home-header {
@@ -2097,6 +2202,11 @@
     margin-bottom: 24px;
     gap: 16px;
     position: relative;
+    transition: opacity 180ms ease;
+  }
+
+  .home-header.scrolled .greeting {
+    opacity: 0;
   }
 
   .header-left {
