@@ -6,12 +6,14 @@
     activeView: string;
     onNavigate: (view: string) => void;
     favoritesTabOrder?: string[];
+    position?: 'left' | 'right';
   }
 
   let {
     activeView,
     onNavigate,
-    favoritesTabOrder = ['tracks', 'albums', 'artists']
+    favoritesTabOrder = ['tracks', 'albums', 'artists'],
+    position = 'left'
   }: Props = $props();
 
   let discoverOpen = $state(false);
@@ -85,7 +87,7 @@
 
 <svelte:window onclick={handleWindowClick} />
 
-<div class="titlebar-nav" data-tauri-drag-region="false">
+<div class="titlebar-nav" class:pos-left={position === 'left'} class:pos-right={position === 'right'} data-tauri-drag-region="false">
   <!-- Discover (with dropdown) -->
   <div
     class="nav-btn-wrapper"
@@ -196,7 +198,16 @@
     -webkit-app-region: no-drag;
     app-region: no-drag;
     flex-shrink: 0;
-    padding: 0 4px;
+  }
+
+  .titlebar-nav.pos-left {
+    padding-left: 8px;
+    padding-right: 4px;
+  }
+
+  .titlebar-nav.pos-right {
+    padding-left: 4px;
+    padding-right: 8px;
   }
 
   .nav-btn-wrapper {

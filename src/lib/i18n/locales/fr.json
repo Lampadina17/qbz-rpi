@@ -810,6 +810,8 @@
       "windowControlsFg": "Icône",
       "windowControlsFgHover": "Icône survol",
       "windowControlsFgActive": "Icône clic",
+      "showWindowControls": "Afficher les controles de fenetre",
+      "showWindowControlsDesc": "Afficher les boutons minimiser, maximiser et fermer dans la barre de titre. Desactivez si votre gestionnaire de fenetres les gere.",
       "showPurchases": "Afficher les achats",
       "showPurchasesDesc": "Afficher la section Achats dans la barre latérale pour parcourir et télécharger votre musique achetée",
       "immersiveDefaultView": "Vue par défaut du mode immersif",

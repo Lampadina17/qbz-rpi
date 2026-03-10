@@ -97,7 +97,8 @@
   import {
     subscribe as subscribeTitleBar,
     initTitleBarStore,
-    shouldShowTitleBar
+    shouldShowTitleBar,
+    getShowWindowControls
   } from '$lib/stores/titleBarStore';
 
   // Search bar location store
@@ -434,6 +435,7 @@
 
   // Title Bar State (from titleBarStore subscription)
   let showTitleBar = $state(shouldShowTitleBar());
+  let showWindowControls = $state(getShowWindowControls());
 
   // Search Bar Location State
   let searchBarLocationPref = $state(getSearchBarLocation());
@@ -3324,6 +3326,7 @@
     initTitleBarStore();
     const unsubscribeTitleBar = subscribeTitleBar(() => {
       showTitleBar = shouldShowTitleBar();
+      showWindowControls = getShowWindowControls();
     });
 
     // Initialize and subscribe to search bar location
@@ -3868,6 +3871,7 @@
   <TitleBarNav
     {activeView}
     onNavigate={navigateTo}
+    position={titlebarNavPosition}
   />
 {/snippet}
 
@@ -3893,6 +3897,7 @@
         }}
         navSnippet={titlebarNavEnabled && showTitleBar ? titlebarNavSnippet : undefined}
         navPosition={titlebarNavPosition}
+        {showWindowControls}
       />
     {/if}
 

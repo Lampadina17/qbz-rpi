@@ -847,6 +847,8 @@
       "windowControlsFg": "Icono",
       "windowControlsFgHover": "Icono hover",
       "windowControlsFgActive": "Icono clic",
+      "showWindowControls": "Mostrar controles de ventana",
+      "showWindowControlsDesc": "Mostrar botones de minimizar, maximizar y cerrar en la barra de titulo. Desactiva si tu gestor de ventanas los maneja.",
       "showPurchases": "Mostrar Compras",
       "showPurchasesDesc": "Mostrar la sección de Compras en la barra lateral para explorar y descargar tu música comprada",
       "immersiveDefaultView": "Vista predeterminada del modo inmersivo",

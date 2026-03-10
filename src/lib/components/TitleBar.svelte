@@ -28,6 +28,7 @@
     };
     navSnippet?: Snippet;
     navPosition?: 'left' | 'right';
+    showWindowControls?: boolean;
   }
 
   let {
@@ -40,7 +41,8 @@
     controlsSize = 'normal',
     controlsColors,
     navSnippet,
-    navPosition = 'left'
+    navPosition = 'left',
+    showWindowControls = true
   }: Props = $props();
 
   let isMaximized = $state(false);
@@ -222,7 +224,7 @@
 >
   <!-- Left zone -->
   <div class="zone zone-left">
-    {#if controlsPosition === 'left'}
+    {#if showWindowControls && controlsPosition === 'left'}
       {@render windowControls('left')}
     {/if}
     {#if navSnippet && navPosition === 'left'}
@@ -272,7 +274,7 @@
     {#if navSnippet && navPosition === 'right'}
       {@render navSnippet()}
     {/if}
-    {#if controlsPosition === 'right'}
+    {#if showWindowControls && controlsPosition === 'right'}
       {@render windowControls('right')}
     {/if}
   </div>

@@ -810,6 +810,8 @@
       "windowControlsFg": "Symbol",
       "windowControlsFgHover": "Symbol hover",
       "windowControlsFgActive": "Symbol Klick",
+      "showWindowControls": "Fenstersteuerungen anzeigen",
+      "showWindowControlsDesc": "Minimieren-, Maximieren- und Schliessen-Schaltflachen in der Titelleiste anzeigen. Deaktivieren, wenn Ihr Fenstermanager diese verwaltet.",
       "showPurchases": "Einkäufe anzeigen",
       "showPurchasesDesc": "Einkäufe-Bereich in der Seitenleiste zum Durchsuchen und Herunterladen gekaufter Musik anzeigen",
       "immersiveDefaultView": "Standard-Ansicht im Immersiv-Modus",

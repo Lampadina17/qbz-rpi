@@ -76,7 +76,9 @@
     getHideTitleBar,
     setHideTitleBar,
     getUseSystemTitleBar,
-    setUseSystemTitleBar
+    setUseSystemTitleBar,
+    getShowWindowControls,
+    setShowWindowControls
   } from '$lib/stores/titleBarStore';
   import {
     subscribe as subscribeSearchBarLocation,
@@ -917,6 +919,7 @@
   // Title bar settings
   let hideTitleBar = $state(getHideTitleBar());
   let useSystemTitleBar = $state(getUseSystemTitleBar());
+  let windowControlsVisible = $state(getShowWindowControls());
 
   // Search bar location
   let searchInTitlebar = $state(getSearchBarLocation() === 'titlebar');
@@ -1450,6 +1453,7 @@
     const unsubscribeTitleBar = subscribeTitleBar(() => {
       hideTitleBar = getHideTitleBar();
       useSystemTitleBar = getUseSystemTitleBar();
+      windowControlsVisible = getShowWindowControls();
     });
 
     // Subscribe to search bar location changes
@@ -4320,6 +4324,17 @@
         {/each}
       </div>
     {/if}
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$t('settings.appearance.showWindowControls')}</span>
+        <span class="setting-desc">{$t('settings.appearance.showWindowControlsDesc')}</span>
+      </div>
+      <Toggle
+        enabled={windowControlsVisible}
+        onchange={(v) => setShowWindowControls(v)}
+        disabled={hideTitleBar || useSystemTitleBar}
+      />
+    </div>
     <div class="setting-row">
       <span class="setting-label">{$t('settings.appearance.miniplayerDefaultView')}</span>
       <Dropdown

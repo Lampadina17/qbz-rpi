@@ -847,6 +847,8 @@
       "windowControlsFg": "Icon",
       "windowControlsFgHover": "Icon hover",
       "windowControlsFgActive": "Icon click",
+      "showWindowControls": "Show window controls",
+      "showWindowControlsDesc": "Show minimize, maximize, and close buttons in the title bar. Disable if your window manager handles these.",
       "showPurchases": "Show Purchases",
       "showPurchasesDesc": "Show the Purchases section in the sidebar for browsing and downloading your purchased music",
       "immersiveDefaultView": "Immersive default view",
