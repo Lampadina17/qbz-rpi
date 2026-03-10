@@ -1864,7 +1864,7 @@
     gap: 6px;
     padding: 6px 14px;
     border: 1px solid var(--border-primary);
-    border-radius: 20px;
+    border-radius: 6px;
     background: transparent;
     color: var(--text-secondary);
     font-size: 12px;
