@@ -49,7 +49,8 @@ use crate::library::{
     PlaylistLocalTrack, PlaylistSettings, PlaylistStats, ScanProgress,
 };
 use crate::lyrics::LyricsState;
-use crate::musicbrainz::{CacheStats as MusicBrainzCacheStats, MusicBrainzSharedState};
+// Legacy MusicBrainz state still needed for factory_reset teardown
+use crate::musicbrainz::MusicBrainzSharedState;
 use crate::offline::OfflineState;
 use crate::offline_cache::OfflineCacheState;
 use crate::playback_context::{ContentSource, ContextType, PlaybackContext};
@@ -2791,7 +2792,7 @@ pub async fn v2_clear_vector_store(
 pub async fn v2_get_playlist_suggestions(
     input: V2PlaylistSuggestionsInput,
     store_state: State<'_, ArtistVectorStoreState>,
-    musicbrainz: State<'_, crate::musicbrainz::MusicBrainzSharedState>,
+    musicbrainz: State<'_, MusicBrainzV2State>,
     app_state: State<'_, AppState>,
     runtime: State<'_, RuntimeManagerState>,
 ) -> Result<crate::artist_vectors::SuggestionResult, RuntimeError> {
@@ -2830,7 +2831,8 @@ pub async fn v2_get_playlist_suggestions(
             };
 
             if let Some(artist_name) = qobuz_artist_name {
-                match musicbrainz.client.search_artist(&artist_name).await {
+                let client = musicbrainz.client.lock().await;
+                match client.search_artist(&artist_name, 10).await {
                     Ok(search) => search
                         .artists
                         .into_iter()
@@ -2856,7 +2858,8 @@ pub async fn v2_get_playlist_suggestions(
         let resolved_mbid = if mbid_from_qobuz.is_some() {
             mbid_from_qobuz
         } else {
-            match musicbrainz.client.search_artist(&artist.name).await {
+            let client = musicbrainz.client.lock().await;
+            match client.search_artist(&artist.name, 10).await {
                 Ok(search) => search
                     .artists
                     .into_iter()
@@ -3848,8 +3851,8 @@ pub async fn v2_lyrics_clear_cache(state: State<'_, LyricsState>) -> Result<(), 
 
 #[tauri::command]
 pub async fn v2_musicbrainz_get_cache_stats(
-    state: State<'_, MusicBrainzSharedState>,
-) -> Result<MusicBrainzCacheStats, String> {
+    state: State<'_, MusicBrainzV2State>,
+) -> Result<qbz_integrations::musicbrainz::cache::CacheStats, String> {
     let cache_opt = state.cache.lock().await;
     let cache = cache_opt
         .as_ref()
@@ -3859,7 +3862,7 @@ pub async fn v2_musicbrainz_get_cache_stats(
 
 #[tauri::command]
 pub async fn v2_musicbrainz_clear_cache(
-    state: State<'_, MusicBrainzSharedState>,
+    state: State<'_, MusicBrainzV2State>,
 ) -> Result<(), String> {
     let cache_opt = state.cache.lock().await;
     let cache = cache_opt
@@ -8368,6 +8371,15 @@ pub async fn v2_listenbrainz_set_enabled(
     log::info!("[V2] listenbrainz_set_enabled: {}", enabled);
     let client = state.client.lock().await;
     client.set_enabled(enabled).await;
+    drop(client);
+
+    // Persist to V2 cache
+    let cache_guard = state.cache.lock().await;
+    if let Some(cache) = cache_guard.as_ref() {
+        if let Err(e) = cache.set_enabled(enabled) {
+            log::warn!("[V2] Failed to persist LB enabled state: {}", e);
+        }
+    }
     Ok(())
 }
 
@@ -8376,7 +8388,6 @@ pub async fn v2_listenbrainz_set_enabled(
 pub async fn v2_listenbrainz_connect(
     token: String,
     state: State<'_, ListenBrainzV2State>,
-    legacy: State<'_, crate::listenbrainz::ListenBrainzSharedState>,
 ) -> Result<qbz_integrations::listenbrainz::UserInfo, RuntimeError> {
     log::info!("[V2] listenbrainz_connect");
     let client = state.client.lock().await;
@@ -8385,24 +8396,11 @@ pub async fn v2_listenbrainz_connect(
         .await
         .map_err(|e| RuntimeError::Internal(e.to_string()))?;
 
-    // Save credentials for persistence (in-memory V2 state)
+    // Save credentials to V2 cache (persists across restarts)
     drop(client);
     state
-        .save_credentials(token.clone(), user_info.user_name.clone())
+        .save_credentials(token, user_info.user_name.clone())
         .await;
-
-    // Persist to legacy SQLite cache so credentials survive restarts
-    {
-        let cache_guard = legacy.cache.lock().await;
-        if let Some(cache) = cache_guard.as_ref() {
-            if let Err(err) = cache.set_credentials(Some(&token), Some(&user_info.user_name)) {
-                log::warn!("Failed to persist ListenBrainz credentials: {}", err);
-            }
-        }
-        // Also update legacy in-memory client
-        let legacy_client = legacy.client.lock().await;
-        legacy_client.restore_token(token, user_info.user_name.clone()).await;
-    }
 
     Ok(user_info)
 }
@@ -8411,25 +8409,13 @@ pub async fn v2_listenbrainz_connect(
 #[tauri::command]
 pub async fn v2_listenbrainz_disconnect(
     state: State<'_, ListenBrainzV2State>,
-    legacy: State<'_, crate::listenbrainz::ListenBrainzSharedState>,
 ) -> Result<(), RuntimeError> {
     log::info!("[V2] listenbrainz_disconnect");
     let client = state.client.lock().await;
     client.disconnect().await;
     drop(client);
+    // Clears in-memory + V2 cache credentials
     state.clear_credentials().await;
-
-    // Clear from legacy SQLite cache
-    {
-        let cache_guard = legacy.cache.lock().await;
-        if let Some(cache) = cache_guard.as_ref() {
-            if let Err(err) = cache.clear_credentials() {
-                log::warn!("Failed to clear ListenBrainz credentials: {}", err);
-            }
-        }
-        legacy.client.lock().await.disconnect().await;
-    }
-
     Ok(())
 }
 
@@ -8550,6 +8536,15 @@ pub async fn v2_musicbrainz_set_enabled(
     log::info!("[V2] musicbrainz_set_enabled: {}", enabled);
     let client = state.client.lock().await;
     client.set_enabled(enabled).await;
+    drop(client);
+
+    // Persist to V2 cache
+    let cache_guard = state.cache.lock().await;
+    if let Some(cache) = cache_guard.as_ref() {
+        if let Err(e) = cache.set_enabled(enabled) {
+            log::warn!("[V2] Failed to persist MB enabled state: {}", e);
+        }
+    }
     Ok(())
 }
 
@@ -8698,7 +8693,7 @@ pub async fn v2_remote_metadata_search(
     query: String,
     artist: Option<String>,
     limit: Option<usize>,
-    musicbrainz_state: State<'_, MusicBrainzSharedState>,
+    musicbrainz_state: State<'_, MusicBrainzV2State>,
 ) -> Result<Vec<crate::library::remote_metadata::RemoteAlbumSearchResult>, RuntimeError> {
     use crate::library::remote_metadata::{
         discogs_extended_to_search_result, musicbrainz_release_to_search_result, RemoteProvider,
@@ -8710,11 +8705,11 @@ pub async fn v2_remote_metadata_search(
 
     match provider {
         RemoteProvider::MusicBrainz => {
-            let response = musicbrainz_state
-                .client
+            let client = musicbrainz_state.client.lock().await;
+            let response = client
                 .search_releases_extended(&query, artist.as_deref().unwrap_or(""), None, max)
                 .await
-                .map_err(RuntimeError::Internal)?;
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
             Ok(response
                 .releases
                 .iter()
@@ -8740,7 +8735,7 @@ pub async fn v2_remote_metadata_search(
 pub async fn v2_remote_metadata_get_album(
     provider: String,
     providerId: String,
-    musicbrainz_state: State<'_, MusicBrainzSharedState>,
+    musicbrainz_state: State<'_, MusicBrainzV2State>,
 ) -> Result<crate::library::remote_metadata::RemoteAlbumMetadata, RuntimeError> {
     use crate::library::remote_metadata::{
         discogs_full_to_metadata, musicbrainz_full_to_metadata, RemoteProvider,
@@ -8752,11 +8747,11 @@ pub async fn v2_remote_metadata_get_album(
 
     match provider {
         RemoteProvider::MusicBrainz => {
-            let full = musicbrainz_state
-                .client
+            let client = musicbrainz_state.client.lock().await;
+            let full = client
                 .get_release_with_tracks(&providerId)
                 .await
-                .map_err(RuntimeError::Internal)?;
+                .map_err(|e| RuntimeError::Internal(e.to_string()))?;
             Ok(musicbrainz_full_to_metadata(&full))
         }
         RemoteProvider::Discogs => {
@@ -8776,20 +8771,26 @@ pub async fn v2_remote_metadata_get_album(
 #[tauri::command]
 pub async fn v2_musicbrainz_get_artist_relationships(
     mbid: String,
-    state: State<'_, MusicBrainzSharedState>,
-) -> Result<crate::musicbrainz::ArtistRelationships, String> {
-    // Check cache first
+    state: State<'_, MusicBrainzV2State>,
+) -> Result<qbz_integrations::musicbrainz::ArtistRelationships, String> {
+    use qbz_integrations::musicbrainz::{ArtistRelationships, Period, RelatedArtist};
+
+    // Check V2 cache first
     {
         let cache_opt = state.cache.lock().await;
-        let cache = cache_opt
-            .as_ref()
-            .ok_or("No active session - please log in")?;
-        if let Some(cached) = cache.get_artist_relations(&mbid)? {
-            return Ok(cached);
+        if let Some(cache) = cache_opt.as_ref() {
+            if let Some(cached) = cache.get_artist_relations(&mbid)? {
+                return Ok(cached);
+            }
         }
     }
 
-    let artist = state.client.get_artist_with_relations(&mbid).await?;
+    let client = state.client.lock().await;
+    let artist = client
+        .get_artist_with_relations(&mbid)
+        .await
+        .map_err(|e| e.to_string())?;
+    drop(client);
 
     let mut members = Vec::new();
     let mut past_members = Vec::new();
@@ -8802,14 +8803,14 @@ pub async fn v2_musicbrainz_get_artist_relationships(
                 continue;
             };
 
-            let related = crate::musicbrainz::RelatedArtist {
+            let related = RelatedArtist {
                 mbid: related_artist.id.clone(),
                 name: related_artist.name.clone(),
                 role: relation
                     .attributes
                     .as_ref()
                     .and_then(|a| a.first().cloned()),
-                period: Some(crate::musicbrainz::Period {
+                period: Some(Period {
                     begin: relation.begin.clone(),
                     end: relation.end.clone(),
                 }),
@@ -8836,20 +8837,19 @@ pub async fn v2_musicbrainz_get_artist_relationships(
         }
     }
 
-    let result = crate::musicbrainz::ArtistRelationships {
+    let result = ArtistRelationships {
         members,
         past_members,
         groups,
         collaborators,
     };
 
-    // Cache result
+    // Cache to V2 cache
     {
         let cache_opt = state.cache.lock().await;
-        let cache = cache_opt
-            .as_ref()
-            .ok_or("No active session - please log in")?;
-        cache.set_artist_relations(&mbid, &result)?;
+        if let Some(cache) = cache_opt.as_ref() {
+            let _ = cache.set_artist_relations(&mbid, &result);
+        }
     }
 
     Ok(result)
@@ -8862,9 +8862,9 @@ pub async fn v2_musicbrainz_get_artist_relationships(
 #[tauri::command]
 pub async fn v2_musicbrainz_get_artist_metadata(
     mbid: String,
-    state: State<'_, MusicBrainzSharedState>,
-) -> Result<crate::musicbrainz::ArtistMetadata, String> {
-    // Check cache first
+    state: State<'_, MusicBrainzV2State>,
+) -> Result<qbz_integrations::musicbrainz::ArtistMetadata, String> {
+    // Check V2 cache first
     {
         let cache_opt = state.cache.lock().await;
         if let Some(cache) = cache_opt.as_ref() {
@@ -8874,13 +8874,18 @@ pub async fn v2_musicbrainz_get_artist_metadata(
         }
     }
 
-    // Fetch from MB API (reuses the same endpoint as relationships)
-    let artist = state.client.get_artist_with_relations(&mbid).await?;
+    // Fetch from MB API via V2 client
+    let client = state.client.lock().await;
+    let artist = client
+        .get_artist_with_relations(&mbid)
+        .await
+        .map_err(|e| e.to_string())?;
+    drop(client);
 
-    // Extract metadata using the location discovery module
+    // Extract metadata using the location discovery module (now uses V2 types)
     let metadata = crate::musicbrainz::location_discovery::extract_metadata(&artist);
 
-    // Cache result
+    // Cache to V2 cache
     {
         let cache_opt = state.cache.lock().await;
         if let Some(cache) = cache_opt.as_ref() {
@@ -8909,15 +8914,15 @@ pub async fn v2_discover_artists_by_location(
     tags: Vec<String>,
     limit: usize,
     offset: usize,
-    state: State<'_, MusicBrainzSharedState>,
+    state: State<'_, MusicBrainzV2State>,
     bridge: State<'_, CoreBridgeState>,
     blacklist_state: State<'_, BlacklistState>,
     runtime: State<'_, RuntimeManagerState>,
     app: tauri::AppHandle,
-) -> Result<crate::musicbrainz::LocationDiscoveryResponse, RuntimeError> {
+) -> Result<qbz_integrations::musicbrainz::LocationDiscoveryResponse, RuntimeError> {
     use crate::musicbrainz::genre_normalization::{extract_affinity_seeds, genre_summary, is_broad_genre};
     use crate::musicbrainz::location_discovery::{build_scene_cache_key, compute_affinity_score};
-    use crate::musicbrainz::models::{
+    use qbz_integrations::musicbrainz::{
         AffinitySeeds, LocationCandidate, LocationDiscoveryResponse, Tag,
     };
     use std::collections::HashMap;
@@ -8931,7 +8936,8 @@ pub async fn v2_discover_artists_by_location(
     // e.g., Leyton → England, Seattle → Washington
     let (search_name, display_name) = if let Some(ref aid) = area_id {
         // Try to resolve city to parent subdivision
-        match state.client.resolve_parent_subdivision(aid).await {
+        let client = state.client.lock().await;
+        match client.resolve_parent_subdivision(aid).await {
             Ok(Some((subdivision_name, _subdivision_id))) => {
                 let display = if let Some(ref c) = country {
                     format!("{}, {}", c, subdivision_name)
@@ -9072,10 +9078,11 @@ pub async fn v2_discover_artists_by_location(
             "progress": progress,
             "detail": genre
         }));
-        let search_result = state
-            .client
+        let client = state.client.lock().await;
+        let search_result = client
             .search_artists_by_tag_and_area(genre, &search_name, country.as_deref(), per_genre_limit, 0)
             .await;
+        drop(client);
 
         match search_result {
             Ok(response) => {
@@ -9218,7 +9225,7 @@ pub async fn v2_discover_artists_by_location(
                 }));
             }
             let name_normalized =
-                crate::musicbrainz::cache::MusicBrainzCache::normalize_name(mb_name);
+                qbz_integrations::musicbrainz::cache::MusicBrainzCache::normalize_name(mb_name);
 
             // Search Qobuz for this artist — request multiple results to handle
             // name collisions (e.g., multiple "The Warning" artists)
@@ -9426,8 +9433,6 @@ pub async fn v2_lastfm_set_session(
 }
 
 /// Queue a listen for offline submission (V2)
-///
-/// Uses legacy cache for persistence until qbz-integrations has its own cache.
 #[tauri::command]
 pub async fn v2_listenbrainz_queue_listen(
     artist: String,
@@ -9439,11 +9444,11 @@ pub async fn v2_listenbrainz_queue_listen(
     artist_mbids: Option<Vec<String>>,
     isrc: Option<String>,
     duration_ms: Option<u64>,
-    legacy_state: State<'_, crate::listenbrainz::ListenBrainzSharedState>,
+    state: State<'_, ListenBrainzV2State>,
 ) -> Result<i64, RuntimeError> {
     log::info!("[V2] listenbrainz_queue_listen: {} - {}", artist, track);
 
-    let cache_guard = legacy_state.cache.lock().await;
+    let cache_guard = state.cache.lock().await;
     let cache = cache_guard
         .as_ref()
         .ok_or_else(|| RuntimeError::Internal("No active session - please log in".to_string()))?;
@@ -9460,21 +9465,20 @@ pub async fn v2_listenbrainz_queue_listen(
             isrc.as_deref(),
             duration_ms,
         )
-        .map_err(|e| RuntimeError::Internal(e))
+        .map_err(RuntimeError::Internal)
 }
 
 #[tauri::command]
 pub async fn v2_listenbrainz_flush_queue(
     state: State<'_, ListenBrainzV2State>,
-    legacy_state: State<'_, crate::listenbrainz::ListenBrainzSharedState>,
 ) -> Result<u32, RuntimeError> {
     let queued = {
-        let cache_guard = legacy_state.cache.lock().await;
+        let cache_guard = state.cache.lock().await;
         let cache = cache_guard.as_ref().ok_or_else(|| {
             RuntimeError::Internal("No active session - please log in".to_string())
         })?;
         cache
-            .get_queued_listens(500)
+            .get_pending_listens(500)
             .map_err(RuntimeError::Internal)?
     };
 
@@ -9519,7 +9523,7 @@ pub async fn v2_listenbrainz_flush_queue(
         return Ok(0);
     }
 
-    let cache_guard = legacy_state.cache.lock().await;
+    let cache_guard = state.cache.lock().await;
     let cache = cache_guard
         .as_ref()
         .ok_or_else(|| RuntimeError::Internal("No active session - please log in".to_string()))?;
@@ -10869,6 +10873,9 @@ pub async fn v2_factory_reset(
     lyrics: State<'_, crate::lyrics::LyricsState>,
     musicbrainz: State<'_, crate::musicbrainz::MusicBrainzSharedState>,
     listenbrainz: State<'_, crate::listenbrainz::ListenBrainzSharedState>,
+    listenbrainz_v2: State<'_, ListenBrainzV2State>,
+    musicbrainz_v2: State<'_, MusicBrainzV2State>,
+    lastfm_v2: State<'_, LastFmV2State>,
 ) -> Result<(), String> {
     log::warn!("FACTORY RESET: Starting - all application data will be deleted");
 
@@ -10894,6 +10901,12 @@ pub async fn v2_factory_reset(
     lyrics.teardown().await;
     musicbrainz.teardown().await;
     listenbrainz.teardown().await;
+
+    // Teardown V2 integration states
+    listenbrainz_v2.clear_credentials().await;
+    listenbrainz_v2.teardown().await;
+    musicbrainz_v2.teardown().await;
+    lastfm_v2.clear_session().await;
     v2_teardown_type_alias_state(&*subscription_state);
     v2_teardown_type_alias_state(&*download_settings);
     v2_teardown_type_alias_state(&*legal_settings);
@@ -12093,8 +12106,19 @@ fn normalize_artist_name(name: &str) -> String {
 /// 5. Return top 8, minimum 5 (frontend shows 6, keeps 2 reserves)
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DiscoveryArtist {
+    pub mbid: String,
+    pub name: String,
+    pub normalized_name: String,
+    pub affinity_score: f64,
+    pub similarity_percent: f64,
+    pub qobuz_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiscoveryResponse {
-    pub artists: Vec<crate::listenbrainz::DiscoveryArtist>,
+    pub artists: Vec<DiscoveryArtist>,
     pub primary_tag: String,
 }
 
@@ -12104,7 +12128,7 @@ pub async fn v2_get_discovery_artists(
     seedMbid: String,
     seedArtistName: String,
     similarArtistNames: Vec<String>,
-    musicbrainz: State<'_, MusicBrainzSharedState>,
+    musicbrainz: State<'_, MusicBrainzV2State>,
     reco_state: State<'_, RecoState>,
     bridge: State<'_, CoreBridgeState>,
     blacklist_state: State<'_, BlacklistState>,
@@ -12116,17 +12140,22 @@ pub async fn v2_get_discovery_artists(
     );
 
     // Step 1: Check MB is enabled
-    if !musicbrainz.client.is_enabled().await {
-        log::warn!("[Discovery] MusicBrainz is disabled, returning empty");
-        return Ok(DiscoveryResponse { artists: Vec::new(), primary_tag: String::new() });
+    {
+        let client = musicbrainz.client.lock().await;
+        if !client.is_enabled().await {
+            log::warn!("[Discovery] MusicBrainz is disabled, returning empty");
+            return Ok(DiscoveryResponse { artists: Vec::new(), primary_tag: String::new() });
+        }
     }
 
     // Step 2: Get seed artist's primary genre tag
-    let seed_tags = musicbrainz
-        .client
-        .get_artist_tags(&seedMbid)
-        .await
-        .unwrap_or_default();
+    let seed_tags = {
+        let client = musicbrainz.client.lock().await;
+        client
+            .get_artist_tags(&seedMbid)
+            .await
+            .unwrap_or_default()
+    };
 
     if seed_tags.is_empty() {
         log::warn!("[Discovery] No tags found for seed artist, returning empty");
@@ -12142,11 +12171,13 @@ pub async fn v2_get_discovery_artists(
 
     // Step 3: Search MB for artists with the same primary tag
     // Request more than we need to account for filtering
-    let mb_results = musicbrainz
-        .client
-        .search_artists_by_tag(primary_tag, 50)
-        .await
-        .map_err(|e| format!("Tag search failed: {}", e))?;
+    let mb_results = {
+        let client = musicbrainz.client.lock().await;
+        client
+            .search_artists_by_tag(primary_tag, 50)
+            .await
+            .map_err(|e| format!("Tag search failed: {}", e))?
+    };
 
     log::info!(
         "[Discovery] MB tag search returned {} artists for '{}'",
@@ -12268,7 +12299,7 @@ pub async fn v2_get_discovery_artists(
 
     // Step 7: Resolve on Qobuz
     let bridge_guard = bridge.try_get().await;
-    let mut results: Vec<crate::listenbrainz::DiscoveryArtist> = Vec::new();
+    let mut results: Vec<DiscoveryArtist> = Vec::new();
     let min_results = 5;
     let max_results = 8;
 
@@ -12299,7 +12330,7 @@ pub async fn v2_get_discovery_artists(
             };
 
             if let Some((qobuz_id, qobuz_name)) = qobuz_artist {
-                results.push(crate::listenbrainz::DiscoveryArtist {
+                results.push(DiscoveryArtist {
                     mbid: mbid.to_string(),
                     name: qobuz_name.clone(),
                     normalized_name: normalize_artist_name(&qobuz_name),
@@ -12336,10 +12367,11 @@ pub async fn v2_get_discovery_artists(
             }
         };
 
-        if let Ok(secondary_results) = musicbrainz
-            .client
-            .search_artists_by_tag(secondary_tag, 30)
-            .await
+        let secondary_search = {
+            let client = musicbrainz.client.lock().await;
+            client.search_artists_by_tag(secondary_tag, 30).await
+        };
+        if let Ok(secondary_results) = secondary_search
         {
             let existing_mbids: HashSet<String> =
                 results.iter().map(|r| r.mbid.clone()).collect();
@@ -12408,7 +12440,7 @@ pub async fn v2_get_discovery_artists(
                         };
 
                     if let Some((qobuz_id, qobuz_name)) = qobuz_artist {
-                        results.push(crate::listenbrainz::DiscoveryArtist {
+                        results.push(DiscoveryArtist {
                             mbid: mbid.clone(),
                             name: qobuz_name.clone(),
                             normalized_name: normalize_artist_name(&qobuz_name),

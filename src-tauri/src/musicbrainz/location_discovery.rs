@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 
 use super::genre_normalization::{extract_affinity_seeds, normalize_genre};
-use super::models::*;
+use qbz_integrations::musicbrainz::*;
 
 /// Extract artist metadata from the full MB response
 pub fn extract_metadata(response: &ArtistFullResponse) -> ArtistMetadata {
