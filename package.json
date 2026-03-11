@@ -11,6 +11,7 @@
     "dev:ultra-restore": "bash ./scripts/dev-ultra-restore.sh",
     "dev:ultra-reset": "bash ./scripts/dev-ultra-restore.sh --no-start",
     "dev:ultra-full-reset": "bash ./scripts/dev-ultra-restore.sh --full --no-start",
+    "dev:reset-last-view": "bash ./scripts/dev-reset-last-view.sh",
     "dev:tauri": "./scripts/dev-with-env.sh",
     "build": "vite build",
     "preview": "vite preview",

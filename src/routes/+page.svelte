@@ -565,6 +565,122 @@
     navigateTo('purchase-album', albumId);
   }
 
+  function isSessionRestoreSafeView(view: ViewType): boolean {
+    switch (view) {
+      case 'search':
+      case 'library':
+      case 'settings':
+      case 'playlist-manager':
+      case 'blacklist-manager':
+      case 'favorites-tracks':
+      case 'favorites-albums':
+      case 'favorites-artists':
+      case 'favorites-playlists':
+      case 'discover-new-releases':
+      case 'discover-ideal-discography':
+      case 'discover-top-albums':
+      case 'discover-qobuzissimes':
+      case 'discover-albums-of-the-week':
+      case 'discover-press-accolades':
+      case 'discover-playlists':
+      case 'purchases':
+      case 'dailyq':
+      case 'weeklyq':
+      case 'favq':
+      case 'topq':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function getSessionFallbackView(view: ViewType): ViewType {
+    switch (view) {
+      case 'library-album':
+        return 'library';
+      case 'purchase-album':
+        return 'purchases';
+      default:
+        return 'home';
+    }
+  }
+
+  function getPersistedSessionViewState(): {
+    view: ViewType;
+    viewContextId: string | null;
+    viewContextType: string | null;
+  } {
+    switch (activeView) {
+      case 'album':
+        if (selectedAlbum?.id) {
+          return {
+            view: 'album',
+            viewContextId: String(selectedAlbum.id),
+            viewContextType: 'album',
+          };
+        }
+        break;
+      case 'artist':
+        if (selectedArtist?.id) {
+          return {
+            view: 'artist',
+            viewContextId: String(selectedArtist.id),
+            viewContextType: 'artist',
+          };
+        }
+        break;
+      case 'playlist':
+        if (selectedPlaylistId) {
+          return {
+            view: 'playlist',
+            viewContextId: String(selectedPlaylistId),
+            viewContextType: 'playlist',
+          };
+        }
+        break;
+      case 'library-album': {
+        const localAlbumId = getSelectedLocalAlbumId();
+        if (localAlbumId) {
+          return {
+            view: 'library-album',
+            viewContextId: localAlbumId,
+            viewContextType: 'library-album',
+          };
+        }
+        break;
+      }
+      case 'purchase-album':
+        if (selectedPurchaseAlbumId) {
+          return {
+            view: 'purchase-album',
+            viewContextId: selectedPurchaseAlbumId,
+            viewContextType: 'purchase-album',
+          };
+        }
+        break;
+    }
+
+    if (isSessionRestoreSafeView(activeView)) {
+      return {
+        view: activeView,
+        viewContextId: null,
+        viewContextType: null,
+      };
+    }
+
+    const fallbackView = getSessionFallbackView(activeView);
+    console.warn('[Session] Persist fallback applied for unsupported or incomplete view:', {
+      activeView,
+      fallbackView,
+    });
+
+    return {
+      view: fallbackView,
+      viewContextId: null,
+      viewContextType: null,
+    };
+  }
+
   function waitForHomePaint(): Promise<void> {
     if (typeof window === 'undefined') return Promise.resolve();
     return new Promise((resolve) => {
@@ -3013,13 +3129,32 @@
         if (contextId) {
           setRestoredLocalAlbumId(contextId);
           restoreView('library-album');
+          return;
         }
-        return;
+        break;
+      case 'purchase-album':
+        if (contextId) {
+          selectedPurchaseAlbumId = contextId;
+          restoreView('purchase-album');
+          return;
+        }
+        break;
       default:
-        // Simple views (search, library, settings, favorites-*, etc.)
-        restoreView(view);
-        return;
+        if (isSessionRestoreSafeView(view)) {
+          restoreView(view);
+          return;
+        }
+        break;
     }
+
+    const fallbackView = getSessionFallbackView(view);
+    console.warn('[Session] Skipping invalid last-view restore and falling back:', {
+      view,
+      contextId,
+      contextType,
+      fallbackView,
+    });
+    restoreView(fallbackView);
   }
 
   // Save session state before window closes
@@ -3027,39 +3162,11 @@
     if (!isLoggedIn || !sessionPersistEnabled) return;
 
     try {
-      // Build view context from current navigation state
-      const currentView = activeView;
-      let viewContextId: string | null = null;
-      let viewContextType: string | null = null;
-
-      switch (currentView) {
-        case 'album':
-          if (selectedAlbum?.id) {
-            viewContextId = String(selectedAlbum.id);
-            viewContextType = 'album';
-          }
-          break;
-        case 'artist':
-          if (selectedArtist?.id) {
-            viewContextId = String(selectedArtist.id);
-            viewContextType = 'artist';
-          }
-          break;
-        case 'playlist':
-          if (selectedPlaylistId) {
-            viewContextId = String(selectedPlaylistId);
-            viewContextType = 'playlist';
-          }
-          break;
-        case 'library-album': {
-          const localAlbumId = getSelectedLocalAlbumId();
-          if (localAlbumId) {
-            viewContextId = localAlbumId;
-            viewContextType = 'library-album';
-          }
-          break;
-        }
-      }
+      const {
+        view: viewToPersist,
+        viewContextId,
+        viewContextType,
+      } = getPersistedSessionViewState();
 
       // Get ALL queue tracks from backend (uncapped, for full persistence)
       const snapshot = await invoke<{ tracks: BackendQueueTrack[]; current_index: number | null }>('v2_get_all_queue_tracks');
@@ -3089,7 +3196,7 @@
         isShuffle,
         repeatMode,
         isPlaying,
-        currentView,
+        viewToPersist,
         viewContextId,
         viewContextType
       );
@@ -4603,7 +4710,7 @@
           onAlbumClick={handleAlbumClick}
           onAlbumPlay={playAlbumById}
         />
-      {:else if activeView !== 'home'}
+      {:else}
         <!-- Catch-all fallback: view has no matching data, show loading/error -->
         <div class="view-error">
           <p>{$t('actions.loading')}</p>

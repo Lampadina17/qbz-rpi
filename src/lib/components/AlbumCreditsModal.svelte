@@ -74,7 +74,7 @@
     expandedTracks = newSet;
   }
 
-  function handleTrackPlay(track: TrackCredits, e: MouseEvent) {
+  function handleTrackPlay(track: TrackCredits, e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
     onTrackPlay?.(track);
   }
