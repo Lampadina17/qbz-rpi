@@ -44,7 +44,11 @@
 
   // Linebed parameters
   const NUM_BANDS = 512; // Backend sends 512 log-scaled bands (4096-point FFT)
-  const NUM_LINES = 200; // Match musicvid.org (200 lines) — dense terrain for 3D mountain effect
+  // Only DISPLAY the first 350 bands (~3.5 kHz). musicvid's spectrumEnd=651
+  // at fftSize=16384 only goes to ~1752 Hz. Bands 350-512 (4-20 kHz) are
+  // treble with almost no energy — displaying them wastes the right half.
+  const DISPLAY_BANDS = 350;
+  const NUM_LINES = 150; // Fewer lines with more spacing for visible 3D depth
   const SMOOTHING = 0.03; // Temporal smoothing (musicvid: smoothingTimeConstant 0.03)
 
   // Spectrum processing params — scaled for 512 bins
@@ -251,8 +255,8 @@
 
     ctx.moveTo(lineLeft, baseY);
 
-    for (let p = 0; p < NUM_BANDS; p++) {
-      const xFraction = p / (NUM_BANDS - 1);
+    for (let p = 0; p < DISPLAY_BANDS; p++) {
+      const xFraction = p / (DISPLAY_BANDS - 1);
       const xPos = lineLeft + xFraction * currentLineWidth;
       const amp = spectrum[p];
       const yPos = baseY - amp * maxAmplitude;
@@ -261,7 +265,7 @@
         ctx.lineTo(xPos, yPos);
       } else {
         // Quadratic curve smoothing between consecutive points
-        const prevFraction = (p - 1) / (NUM_BANDS - 1);
+        const prevFraction = (p - 1) / (DISPLAY_BANDS - 1);
         const prevX = lineLeft + prevFraction * currentLineWidth;
         const prevY = baseY - spectrum[p - 1] * maxAmplitude;
         const cpX = (prevX + xPos) / 2;
@@ -272,7 +276,7 @@
 
     // Final point
     const lastX = lineLeft + currentLineWidth;
-    const lastY = baseY - spectrum[NUM_BANDS - 1] * maxAmplitude;
+    const lastY = baseY - spectrum[DISPLAY_BANDS - 1] * maxAmplitude;
     ctx.lineTo(lastX, lastY);
   }
 
@@ -296,17 +300,17 @@
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
-    // Perspective: "table seen from above" — a contained rectangle in perspective.
-    // musicvid's terrain is roughly square, NOT an infinite conveyor belt.
-    // Back ~55% width, front ~80% width, both clearly visible.
+    // Perspective: HIGH viewpoint looking DOWN at a table.
+    // Small vertical spread = steep viewing angle. Terrain centered on canvas.
+    // Peaks go UP (toward viewer), the "table" is a shallow band.
 
-    // Back line (far, top): visible width, clearly defined edge
-    const backY = height * 0.28;
-    const backLineWidth = width * 0.50;
+    // Back line (far): narrow, upper portion of terrain band
+    const backY = height * 0.35;
+    const backLineWidth = width * 0.42;
 
-    // Front line (close, bottom): wider but contained within canvas
-    const frontY = height * 0.82;
-    const frontLineWidth = width * 0.82;
+    // Front line (near): wider, lower portion of terrain band
+    const frontY = height * 0.68;
+    const frontLineWidth = width * 0.78;
 
     // Draw lines from back to front (painter's algorithm).
     // Data direction: NEWEST at back, scrolls toward front/viewer.
@@ -315,22 +319,22 @@
       const bufIdx = (historyIndex - 1 - lineIdx + NUM_LINES * 2) % NUM_LINES;
       const spectrum = history[bufIdx];
 
-      // Moderate depth compression for table-like perspective
+      // Moderate depth compression
       const rawFactor = lineIdx / (NUM_LINES - 1);
-      const depthFactor = Math.pow(rawFactor, 1.5);
+      const depthFactor = Math.pow(rawFactor, 1.4);
 
       // Interpolate Y and width from back to front
       const baseY = backY + (frontY - backY) * depthFactor;
       const currentLineWidth = backLineWidth + (frontLineWidth - backLineWidth) * depthFactor;
       const lineLeft = (width - currentLineWidth) / 2; // Centered
 
-      // Amplitude: moderate peaks spread across the terrain, not towering spikes
-      const amplitudeScale = 0.15 + depthFactor * 0.85;
-      const maxAmplitude = height * 0.35 * amplitudeScale;
+      // Amplitude: SHORT peaks — musicvid's peaks are modest relative to terrain size.
+      // spectrumHeight 770 / total mesh depth 4000 = 19% ratio.
+      const amplitudeScale = 0.20 + depthFactor * 0.80;
+      const maxAmplitude = height * 0.18 * amplitudeScale;
 
-      // Opacity: ALL lines clearly visible — no fade to black at back.
-      // musicvid shows every line including the back edge.
-      const opacity = 0.45 + depthFactor * 0.55;
+      // Opacity: all lines clearly visible
+      const opacity = 0.5 + depthFactor * 0.5;
 
       // Occlusion pass: fill below the spectrum line with black
       ctx.beginPath();
