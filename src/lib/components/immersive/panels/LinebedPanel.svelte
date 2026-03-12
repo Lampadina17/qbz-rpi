@@ -43,8 +43,8 @@
 
   // Linebed parameters
   const NUM_BANDS = 190; // viz:spectral sends 190 bands
-  const NUM_LINES = 80;  // Dense terrain lines (musicvid.org uses 200 with WebGL)
-  const SMOOTHING = 0.35; // Temporal smoothing between frames
+  const NUM_LINES = 120; // Dense terrain (musicvid.org uses 200 with WebGL, 120 is Canvas 2D safe)
+  const SMOOTHING = 0.05; // Very low temporal smoothing for responsive peaks (musicvid: 0.03)
 
   // Spectrum processing params (from musicvid.org SpectrumAnalyser)
   const SMOOTHING_PASSES = 3;
@@ -166,13 +166,9 @@
             spatialSmoothed[i] = Math.pow(spatialSmoothed[i], SPECTRUM_EXPONENT);
           }
 
-          // Push processed snapshot into history every other frame
-          frameCounter++;
-          if (frameCounter >= 2) {
-            frameCounter = 0;
-            history[historyIndex].set(spatialSmoothed);
-            historyIndex = (historyIndex + 1) % NUM_LINES;
-          }
+          // Push processed snapshot into history every frame for fluid scrolling
+          history[historyIndex].set(spatialSmoothed);
+          historyIndex = (historyIndex + 1) % NUM_LINES;
         }
       }
     });
@@ -244,59 +240,55 @@
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
-    // Isometric perspective matching musicvid.org's camera angle:
-    // camera at (-80, 150, -10) looking at (0, 0, -100)
-    // This creates an elevated view where the terrain stretches from
-    // the upper-right (vanishing point) toward the lower-left (viewer).
+    // Centered symmetric perspective — like looking down at a table from above.
+    // Vanishing point at center-top. Shape: trapezoid wider at bottom (front),
+    // narrower at top (back). Matches musicvid.org's actual rendering.
 
-    // Vanishing point: upper-right area of the canvas
-    const vanishX = width * 0.75;
-    const vanishY = height * 0.08;
+    // Back line (far, top of canvas): narrow, centered
+    const backY = height * 0.22;
+    const backLineWidth = width * 0.28;
 
-    // Front line anchors: wide line near the bottom of canvas
-    const frontLeftX = -width * 0.15;
-    const frontRightX = width * 0.85;
+    // Front line (close, bottom of canvas): wide, centered
     const frontY = height * 0.95;
-    const frontLineWidth = frontRightX - frontLeftX;
+    const frontLineWidth = width * 1.1; // Slightly wider than canvas for edge coverage
 
     // Draw lines from back to front (painter's algorithm).
-    // Data direction: NEWEST at back (vanishing point), scrolls toward front/viewer.
+    // Data direction: NEWEST at back, scrolls toward front/viewer.
     for (let lineIdx = 0; lineIdx < NUM_LINES; lineIdx++) {
       // Reverse mapping: lineIdx=0 (back) = newest data, lineIdx=N-1 (front) = oldest
       const bufIdx = (historyIndex - 1 - lineIdx + NUM_LINES * 2) % NUM_LINES;
       const spectrum = history[bufIdx];
 
-      // Non-linear depth: compress lines at back (vanishing), spread at front
+      // Non-linear depth: compress lines at back, spread at front
       const rawFactor = lineIdx / (NUM_LINES - 1);
-      const depthFactor = Math.pow(rawFactor, 1.8);
+      const depthFactor = Math.pow(rawFactor, 1.7);
 
-      // Interpolate position from vanishing point to front
-      const lineLeftX = vanishX + (frontLeftX - vanishX) * depthFactor;
-      const lineRightX = vanishX + (frontRightX - vanishX) * depthFactor;
-      const baseY = vanishY + (frontY - vanishY) * depthFactor;
-      const currentLineWidth = lineRightX - lineLeftX;
+      // Interpolate Y and width from back to front
+      const baseY = backY + (frontY - backY) * depthFactor;
+      const currentLineWidth = backLineWidth + (frontLineWidth - backLineWidth) * depthFactor;
+      const lineLeft = (width - currentLineWidth) / 2; // Centered
 
-      // Amplitude: scales with perspective depth
-      const amplitudeScale = 0.05 + depthFactor * 0.95;
-      const maxAmplitude = height * 0.35 * amplitudeScale;
+      // Amplitude: dramatic peaks, scale with perspective
+      const amplitudeScale = 0.08 + depthFactor * 0.92;
+      const maxAmplitude = height * 0.45 * amplitudeScale;
 
       // Opacity: fades at back, bright at front
-      const opacity = 0.04 + depthFactor * 0.96;
+      const opacity = 0.05 + depthFactor * 0.95;
 
       // Occlusion pass: fill below the spectrum line with black
       ctx.beginPath();
-      buildSpectrumPath(spectrum, lineLeftX, currentLineWidth, baseY, maxAmplitude);
-      ctx.lineTo(lineLeftX + currentLineWidth, baseY + 4);
-      ctx.lineTo(lineLeftX, baseY + 4);
+      buildSpectrumPath(spectrum, lineLeft, currentLineWidth, baseY, maxAmplitude);
+      ctx.lineTo(lineLeft + currentLineWidth, baseY + 3);
+      ctx.lineTo(lineLeft, baseY + 3);
       ctx.closePath();
       ctx.fillStyle = '#000000';
       ctx.fill();
 
       // Stroke pass: draw the spectrum line on top
       ctx.beginPath();
-      buildSpectrumPath(spectrum, lineLeftX, currentLineWidth, baseY, maxAmplitude);
+      buildSpectrumPath(spectrum, lineLeft, currentLineWidth, baseY, maxAmplitude);
 
-      const lineWeight = 0.2 + depthFactor * 1.3;
+      const lineWeight = 0.2 + depthFactor * 1.1;
       ctx.strokeStyle = `rgba(${lineColor.r}, ${lineColor.g}, ${lineColor.b}, ${opacity})`;
       ctx.lineWidth = lineWeight;
       ctx.stroke();
