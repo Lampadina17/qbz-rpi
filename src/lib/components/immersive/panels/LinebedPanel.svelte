@@ -44,14 +44,23 @@
   // Linebed parameters
   const NUM_BANDS = 190; // viz:spectral sends 190 bands
   const NUM_LINES = 120; // Dense terrain (musicvid.org uses 200 with WebGL, 120 is Canvas 2D safe)
-  const SMOOTHING = 0.05; // Very low temporal smoothing for responsive peaks (musicvid: 0.03)
+  const SMOOTHING = 0.03; // Temporal smoothing (musicvid: smoothingTimeConstant 0.03)
 
-  // Spectrum processing params (from musicvid.org SpectrumAnalyser)
+  // Spectrum processing params (from musicvid.org SpectrumAnalyser settings)
   const SMOOTHING_PASSES = 3;
   const SMOOTHING_POINTS = 9;
-  const SPECTRUM_EXPONENT = 0.8; // Exponential transform for peak emphasis
-  const SPECTRUM_POWER = 2.5; // Power-law bin mapping (musicvid.org transformToVisualBins)
-  const TAPER_BANDS = 10; // Edge taper width to eliminate staircase artifact
+  const SPECTRUM_POWER = 2.5; // Power-law bin mapping (spectrumScale: 2.5)
+
+  // Variable exponential transform (musicvid: Exponential settings)
+  // Bass gets higher exponent = sharper peaks; treble gets lower = softer
+  const SPECTRUM_MAX_EXPONENT = 6; // Applied to bass (bin 0)
+  const SPECTRUM_MIN_EXPONENT = 3; // Applied to treble (last bin)
+  const SPECTRUM_EXPONENT_SCALE = 2; // Power curve for exponent interpolation
+
+  // Head margin (musicvid: Smoothing > headMargin/tailMargin settings)
+  const HEAD_MARGIN = 7;
+  const MIN_MARGIN_WEIGHT = 0.7;
+  const MARGIN_DECAY = 1.6;
 
   // Ring buffer of spectrum snapshots
   const history: Float32Array[] = [];
@@ -107,13 +116,41 @@
     return result;
   }
 
-  // Edge tapering — fade amplitude to zero at first/last bands
-  // Eliminates the staircase/square artifact at spectrum edges
-  function applyEdgeTaper(data: Float32Array): void {
-    for (let i = 0; i < TAPER_BANDS; i++) {
-      const factor = i / TAPER_BANDS;
-      data[i] *= factor;
-      data[NUM_BANDS - 1 - i] *= factor;
+  // Normalize spectrum to [0, 1] range — required before exponential transform.
+  // Without normalization, exponents 3-6 produce wrong results.
+  function normalizeSpectrum(data: Float32Array): void {
+    let max = 0;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] > max) max = data[i];
+    }
+    if (max > 0) {
+      for (let i = 0; i < data.length; i++) {
+        data[i] /= max;
+      }
+    }
+  }
+
+  // Head margin transform (musicvid: tailTransform with headMargin settings).
+  // Reduces the first N bins with a decay curve to avoid harsh bass edge.
+  function applyTailTransform(data: Float32Array): void {
+    for (let i = 0; i < HEAD_MARGIN; i++) {
+      const frac = i / HEAD_MARGIN;
+      const weight = MIN_MARGIN_WEIGHT + (1 - MIN_MARGIN_WEIGHT) * Math.pow(frac, 1 / MARGIN_DECAY);
+      data[i] *= weight;
+    }
+  }
+
+  // Variable exponential transform (musicvid: exponentialTransform).
+  // Bass bins get exponent 6 (very sharp — only peaks survive),
+  // treble bins get exponent 3 (still sharp but less aggressive).
+  // This is what creates "many peaks" instead of "fat mountains".
+  function applyExponentialTransform(data: Float32Array): void {
+    for (let i = 0; i < data.length; i++) {
+      const fraction = i / data.length;
+      const exponent = SPECTRUM_MAX_EXPONENT +
+        (SPECTRUM_MIN_EXPONENT - SPECTRUM_MAX_EXPONENT) *
+        Math.pow(fraction, SPECTRUM_EXPONENT_SCALE);
+      data[i] = Math.pow(data[i], exponent);
     }
   }
 
@@ -181,27 +218,31 @@
         const bytes = new Uint8Array(payload);
         const floats = new Float32Array(bytes.buffer);
         if (floats.length === NUM_BANDS) {
-          // Temporal smoothing between frames
+          // Pipeline matches musicvid.org's SpectrumAnalyser transform chain:
+          // temporal → combineBins → normalize → tail → exponential → smoothing
+
+          // 1. Temporal smoothing (smoothingTimeConstant: 0.03)
           for (let i = 0; i < NUM_BANDS; i++) {
             smoothedData[i] = smoothedData[i] * SMOOTHING + floats[i] * (1 - SMOOTHING);
           }
 
-          // Power-law frequency redistribution (bass gets more visual width)
+          // 2. Power-law frequency redistribution (combineBins / spectrumScale: 2.5)
           const visualBins = transformToVisualBins(smoothedData);
 
-          // Edge taper (eliminate staircase artifact at edges)
-          applyEdgeTaper(visualBins);
+          // 3. Normalize to [0,1] (enableNormalizeTransform)
+          normalizeSpectrum(visualBins);
 
-          // Apply spatial smoothing (multi-pass moving average)
-          const spatialSmoothed = smoothSpectrum(visualBins);
+          // 4. Head margin (enableTailTransform — headMargin: 7)
+          applyTailTransform(visualBins);
 
-          // Apply exponential transform for peak emphasis
-          for (let i = 0; i < NUM_BANDS; i++) {
-            spatialSmoothed[i] = Math.pow(spatialSmoothed[i], SPECTRUM_EXPONENT);
-          }
+          // 5. Variable exponential (enableExponentialTransform — exponents 3→6)
+          applyExponentialTransform(visualBins);
+
+          // 6. Spatial smoothing (enableSmoothingTransform — 3 passes, 9 points)
+          const finalSpectrum = smoothSpectrum(visualBins);
 
           // Push processed snapshot into history every frame for fluid scrolling
-          history[historyIndex].set(spatialSmoothed);
+          history[historyIndex].set(finalSpectrum);
           historyIndex = (historyIndex + 1) % NUM_LINES;
         }
       }
@@ -274,17 +315,17 @@
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
-    // Centered symmetric perspective — like looking down at a table from above.
-    // Vanishing point at center-top. Shape: trapezoid wider at bottom (front),
-    // narrower at top (back). Matches musicvid.org's actual rendering.
+    // Centered symmetric perspective — steeper "standing on a chair" angle.
+    // Camera: musicvid posY=1738, rotX=-0.6543 (looking down ~37.5°).
+    // Simulated via less aggressive depth compression + larger vertical spread.
 
     // Back line (far, top of canvas): narrow, centered
-    const backY = height * 0.22;
-    const backLineWidth = width * 0.28;
+    const backY = height * 0.12;
+    const backLineWidth = width * 0.18;
 
     // Front line (close, bottom of canvas): wide, centered
-    const frontY = height * 0.95;
-    const frontLineWidth = width * 1.1; // Slightly wider than canvas for edge coverage
+    const frontY = height * 0.92;
+    const frontLineWidth = width * 1.1;
 
     // Draw lines from back to front (painter's algorithm).
     // Data direction: NEWEST at back, scrolls toward front/viewer.
@@ -293,21 +334,21 @@
       const bufIdx = (historyIndex - 1 - lineIdx + NUM_LINES * 2) % NUM_LINES;
       const spectrum = history[bufIdx];
 
-      // Non-linear depth: compress lines at back, spread at front
+      // Less aggressive depth compression = more uniform spacing = steeper viewing angle
       const rawFactor = lineIdx / (NUM_LINES - 1);
-      const depthFactor = Math.pow(rawFactor, 1.7);
+      const depthFactor = Math.pow(rawFactor, 1.35);
 
       // Interpolate Y and width from back to front
       const baseY = backY + (frontY - backY) * depthFactor;
       const currentLineWidth = backLineWidth + (frontLineWidth - backLineWidth) * depthFactor;
       const lineLeft = (width - currentLineWidth) / 2; // Centered
 
-      // Amplitude: dramatic peaks, scale with perspective
-      const amplitudeScale = 0.08 + depthFactor * 0.92;
-      const maxAmplitude = height * 0.45 * amplitudeScale;
+      // Amplitude: tall peaks like musicvid (spectrumHeight: 770, spacing: 20 = 38.5x ratio)
+      const amplitudeScale = 0.06 + depthFactor * 0.94;
+      const maxAmplitude = height * 0.55 * amplitudeScale;
 
       // Opacity: fades at back, bright at front
-      const opacity = 0.05 + depthFactor * 0.95;
+      const opacity = 0.08 + depthFactor * 0.92;
 
       // Occlusion pass: fill below the spectrum line with black
       ctx.beginPath();
