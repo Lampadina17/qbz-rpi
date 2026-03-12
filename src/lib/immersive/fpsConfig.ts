@@ -10,6 +10,11 @@ import { getUserItem } from '$lib/utils/userStorage';
 const FPS_KEY_PREFIX = 'qbz-immersive-fps-';
 const DEFAULT_FPS = 15;
 
+// Per-panel default overrides (panels not listed here use DEFAULT_FPS)
+const PANEL_DEFAULTS: Partial<Record<ImmersivePanelId, number>> = {
+  linebed: 60, // Linebed needs high FPS for dense terrain 3D effect
+};
+
 export type ImmersivePanelId =
   | 'ambient'
   | 'visualizer'
@@ -29,10 +34,11 @@ export type ImmersivePanelId =
  * Returns 0 for disabled, or the FPS value.
  */
 export function getPanelFps(panelId: ImmersivePanelId): number {
+  const defaultFps = PANEL_DEFAULTS[panelId] ?? DEFAULT_FPS;
   const stored = getUserItem(`${FPS_KEY_PREFIX}${panelId}`);
-  if (stored === null) return DEFAULT_FPS;
+  if (stored === null) return defaultFps;
   const parsed = parseInt(stored, 10);
-  return isNaN(parsed) ? DEFAULT_FPS : parsed;
+  return isNaN(parsed) ? defaultFps : parsed;
 }
 
 /**

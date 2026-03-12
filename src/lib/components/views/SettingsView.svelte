@@ -1105,7 +1105,7 @@
   const FPS_OPTIONS = ['0', '15', '30', '60', '120'] as const;
   const FPS_PANEL_IDS = [
     'ambient', 'visualizer', 'lissajous', 'oscilloscope',
-    'energy-bands', 'transient-pulse', 'album-reactive', 'spectral-ribbon', 'neon-flow', 'tunnel-flow', 'comet-flow'
+    'energy-bands', 'transient-pulse', 'album-reactive', 'spectral-ribbon', 'neon-flow', 'tunnel-flow', 'comet-flow', 'linebed'
   ] as const;
 
   let immersiveFpsCollapsed = $state(true);

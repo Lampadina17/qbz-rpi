@@ -3,8 +3,7 @@
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
   import QualityBadge from '$lib/components/QualityBadge.svelte';
-  // Linebed runs at full requestAnimationFrame rate (~60fps) — no throttle.
-  // Dense terrain with 200 lines needs every frame for the 3D mountain effect.
+  import { getPanelFrameInterval } from '$lib/immersive/fpsConfig';
 
   interface Props {
     enabled?: boolean;
@@ -79,7 +78,8 @@
   // Current smoothed spectrum
   const smoothedData = new Float32Array(NUM_BANDS);
 
-  // No frame throttle — requestAnimationFrame caps at display refresh rate
+  let lastRenderTime = 0;
+  const FRAME_INTERVAL = getPanelFrameInterval('linebed'); // Default 60fps
 
   // Multi-pass moving average smoothing (from musicvid.org AnalyseFunctions.js)
   function smoothSpectrum(data: Float32Array): Float32Array {
@@ -240,7 +240,7 @@
       }
     });
 
-    render();
+    render(0);
   }
 
   // Build a smooth curve path through spectrum points
@@ -280,8 +280,17 @@
     ctx.lineTo(lastX, lastY);
   }
 
-  function render() {
+  function render(timestamp: number = 0) {
     if (!ctx || !canvasRef) return;
+
+    if (FRAME_INTERVAL > 0) {
+      const delta = timestamp - lastRenderTime;
+      if (delta < FRAME_INTERVAL) {
+        animationFrame = requestAnimationFrame(render);
+        return;
+      }
+      lastRenderTime = timestamp;
+    }
 
     const rect = canvasRef.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
