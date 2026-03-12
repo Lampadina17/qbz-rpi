@@ -675,18 +675,20 @@
     'English': 'en',
     'Español': 'es',
     'Français': 'fr',
-    'Deutsch': 'de'
+    'Deutsch': 'de',
+    'Português (Brasil)': 'pt'
   };
 
   const localeToLanguage: Record<string, string> = {
     'en': 'English',
     'es': 'Español',
     'fr': 'Français',
-    'de': 'Deutsch'
+    'de': 'Deutsch',
+    'pt': 'Português (Brasil)'
   };
 
   // Available languages (only those with translations)
-  const availableLanguages = ['Auto', 'English', 'Español', 'Français', 'Deutsch'];
+  const availableLanguages = ['Auto', 'English', 'Español', 'Français', 'Deutsch', 'Português (Brasil)'];
 
   // Font family selection
   const fontFamilies: Record<string, string> = {
@@ -2421,7 +2423,7 @@
     } else {
       // 'Auto' - use browser locale, defaulting to 'en'
       const browserLocale = navigator.language.split('-')[0];
-      const supportedLocale = ['en', 'es', 'fr', 'de'].includes(browserLocale) ? browserLocale : 'en';
+      const supportedLocale = ['en', 'es', 'fr', 'de', 'pt'].includes(browserLocale) ? browserLocale : 'en';
       await setLocale(supportedLocale);
       // Clear the stored locale so it uses browser detection on next load
       localStorage.removeItem('qbz-locale');
