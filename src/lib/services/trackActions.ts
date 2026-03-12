@@ -6,6 +6,7 @@
  */
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { get } from 'svelte/store';
 import {
@@ -18,6 +19,12 @@ import { openPlaylistModal } from '$lib/stores/uiStore';
 import { showToast as storeShowToast, type ToastType } from '$lib/stores/toastStore';
 import { t } from '$lib/i18n';
 import type { QobuzTrack, Track, PlaylistTrack, LocalLibraryTrack, DisplayTrack } from '$lib/types';
+import {
+  resolveQconnectPlayNextInsertAfter,
+  type QconnectDiagnosticsPayload,
+  type QconnectQueueSnapshot,
+  type QconnectRendererSnapshot
+} from '$lib/services/qconnectRemoteQueue';
 
 // ============ Toast Integration ============
 
@@ -31,12 +38,6 @@ function translate(key: string): string {
 
 type QconnectStatus = {
   transport_connected: boolean;
-};
-
-type QconnectRendererSnapshot = {
-  current_track?: {
-    queue_item_id?: number | null;
-  } | null;
 };
 
 type QconnectTrackOrigin =
@@ -56,6 +57,8 @@ type QconnectQueueCommandType = 'queue_add_tracks' | 'queue_insert_tracks' | 'qu
 type QueueTrackActionOptions = {
   silent?: boolean;
 };
+
+const QCONNECT_DIAGNOSTIC_EVENT = 'qconnect:diagnostic';
 
 function qconnectAdmissionReasonKey(reason: string): string {
   if (reason === 'local_library_tracks_never_enter_remote_qconnect_queue') {
@@ -95,14 +98,80 @@ async function evaluateQconnectAdmission(origin: QconnectTrackOrigin): Promise<Q
   }
 }
 
-async function getQconnectInsertAfterQueueItemId(): Promise<number | null> {
+async function emitQconnectDiagnostic(
+  channel: string,
+  level: 'info' | 'warn' | 'error',
+  payload: unknown
+): Promise<void> {
+  const eventPayload: QconnectDiagnosticsPayload = {
+    ts: Date.now(),
+    channel,
+    level,
+    payload
+  };
+
   try {
-    const snapshot = await invoke<QconnectRendererSnapshot>('v2_qconnect_renderer_snapshot');
-    const queueItemId = snapshot.current_track?.queue_item_id;
-    return typeof queueItemId === 'number' ? queueItemId : null;
-  } catch {
-    return null;
+    await emit(QCONNECT_DIAGNOSTIC_EVENT, eventPayload);
+  } catch (err) {
+    console.warn('[QConnect] diagnostic emit failed:', err);
   }
+}
+
+type QconnectPlayNextResolution = {
+  insertAfter: number | null;
+  strategy: string;
+  queueSnapshot: QconnectQueueSnapshot | null;
+  rendererSnapshot: QconnectRendererSnapshot | null;
+  snapshotError: string | null;
+};
+
+async function resolveQconnectPlayNextInsertAfterFromSnapshots(): Promise<QconnectPlayNextResolution> {
+  const [queueSnapshotResult, rendererSnapshotResult] = await Promise.allSettled([
+    invoke<QconnectQueueSnapshot>('v2_qconnect_queue_snapshot'),
+    invoke<QconnectRendererSnapshot>('v2_qconnect_renderer_snapshot')
+  ]);
+
+  const queueSnapshot = queueSnapshotResult.status === 'fulfilled' ? queueSnapshotResult.value : null;
+  const rendererSnapshot = rendererSnapshotResult.status === 'fulfilled' ? rendererSnapshotResult.value : null;
+  const resolution = resolveQconnectPlayNextInsertAfter(queueSnapshot, rendererSnapshot);
+
+  const snapshotError = [
+    queueSnapshotResult.status === 'rejected'
+      ? `queue_snapshot=${String(queueSnapshotResult.reason)}`
+      : null,
+    rendererSnapshotResult.status === 'rejected'
+      ? `renderer_snapshot=${String(rendererSnapshotResult.reason)}`
+      : null
+  ].filter((value): value is string => value !== null).join('; ');
+
+  if (resolution.insertAfter !== null) {
+    return {
+      insertAfter: resolution.insertAfter,
+      strategy: resolution.strategy,
+      queueSnapshot,
+      rendererSnapshot,
+      snapshotError: snapshotError || null
+    };
+  }
+
+  const rendererQueueItemId = rendererSnapshot?.current_track?.queue_item_id;
+  if (!queueSnapshot && typeof rendererQueueItemId === 'number') {
+    return {
+      insertAfter: rendererQueueItemId,
+      strategy: 'renderer_current_queue_item_id_unverified_fallback',
+      queueSnapshot,
+      rendererSnapshot,
+      snapshotError: snapshotError || null
+    };
+  }
+
+  return {
+    insertAfter: null,
+    strategy: resolution.strategy,
+    queueSnapshot,
+    rendererSnapshot,
+    snapshotError: snapshotError || null
+  };
 }
 
 async function sendQconnectQueueCommandWithAdmission(
@@ -287,8 +356,9 @@ export async function queueTrackNext(
 
     if (!useLocalFallback) {
       try {
-        const insertAfter = await getQconnectInsertAfterQueueItemId();
-        console.log('[QConnect/PlayNext] insertAfter=%s', insertAfter);
+        const playNextResolution = await resolveQconnectPlayNextInsertAfterFromSnapshots();
+        const insertAfter = playNextResolution.insertAfter;
+        console.log('[QConnect/PlayNext] insertAfter=%s strategy=%s', insertAfter, playNextResolution.strategy);
         const payload: Record<string, unknown> = {
           track_ids: [queueTrack.id],
           context_uuid: crypto.randomUUID(),
@@ -299,15 +369,40 @@ export async function queueTrackNext(
           payload.insert_after = insertAfter;
         }
 
+        await emitQconnectDiagnostic('qconnect:play_next_anchor', 'info', {
+          requested_track_id: queueTrack.id,
+          origin,
+          insert_after: insertAfter,
+          strategy: playNextResolution.strategy,
+          snapshot_error: playNextResolution.snapshotError,
+          renderer_current: playNextResolution.rendererSnapshot?.current_track ?? null,
+          renderer_next: playNextResolution.rendererSnapshot?.next_track ?? null,
+          queue_preview: (playNextResolution.queueSnapshot?.queue_items ?? []).slice(0, 8),
+          queue_length: playNextResolution.queueSnapshot?.queue_items.length ?? 0,
+          autoplay_length: playNextResolution.queueSnapshot?.autoplay_items.length ?? 0
+        });
+
         console.log('[QConnect/PlayNext] sending queue_insert_tracks payload=%o', payload);
         await sendQconnectQueueCommandWithAdmission('queue_insert_tracks', origin, payload);
         console.log('[QConnect/PlayNext] queue_insert_tracks SUCCESS');
+        await emitQconnectDiagnostic('qconnect:play_next_sent', 'info', {
+          requested_track_id: queueTrack.id,
+          origin,
+          insert_after: insertAfter,
+          strategy: playNextResolution.strategy,
+          payload
+        });
         if (!silent) {
           showToast(translate('qconnect.remoteQueuedNext'), 'success');
         }
         return true;
       } catch (err) {
         console.error('[QConnect/PlayNext] FAILED:', err);
+        await emitQconnectDiagnostic('qconnect:play_next_failed', 'error', {
+          requested_track_id: queueTrack.id,
+          origin,
+          error: String(err)
+        });
         if (!silent) {
           showToast(translate('qconnect.remoteQueueFailed'), 'error');
         }

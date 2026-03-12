@@ -248,20 +248,6 @@
     last_error?: string | null;
   };
 
-  type QconnectQueueSnapshot = {
-    version: { major: number; minor: number };
-    queue_items: Array<unknown>;
-    shuffle_mode: boolean;
-    autoplay_mode: boolean;
-    autoplay_items: Array<unknown>;
-  };
-
-  type QconnectRendererSnapshot = {
-    playing_state?: number | null;
-    volume?: number | null;
-    muted?: boolean | null;
-  };
-
   type QconnectSessionSnapshot = {
     session_uuid?: string | null;
     active_renderer_id?: number | null;
@@ -348,6 +334,12 @@
     shareSonglinkTrack,
     loadQconnectQueue
   } from '$lib/services/trackActions';
+  import type {
+    QconnectDiagnosticsPayload,
+    QconnectQueueSnapshot,
+    QconnectRendererReportDebugPayload,
+    QconnectRendererSnapshot
+  } from '$lib/services/qconnectRemoteQueue';
 
   // Internationalization
   import { t } from '$lib/i18n';
@@ -981,6 +973,13 @@
 
   function clearQobuzConnectDiagnostics(): void {
     qobuzConnectDiagnosticsLogs = [];
+  }
+
+  function logQconnectPlaybackReport(
+    source: 'interval' | 'player_transition',
+    payload: Record<string, unknown>
+  ): void {
+    pushQobuzConnectDiagnostic(`qconnect:report_playback_state:${source}`, 'info', payload);
   }
 
   function qobuzConnectAdmissionReasonKey(reason: string): string {
@@ -3597,14 +3596,22 @@
         // QConnect protocol uses milliseconds for position/duration.
         const positionMs = Math.round((currentTime || 0) * 1000);
         const durationMs = Math.round((duration || 0) * 1000);
-        invoke('v2_qconnect_report_playback_state', {
+        const payload = {
           playingState: 2,
           currentPosition: positionMs,
           duration: durationMs,
           currentQueueItemId: null,
           nextQueueItemId: null,
-          currentTrackId: currentTrack?.id ?? null,
-        }).catch(() => {});
+          currentTrackId: currentTrack?.id ?? null
+        };
+        logQconnectPlaybackReport('interval', payload);
+        invoke('v2_qconnect_report_playback_state', payload).catch((err) => {
+          pushQobuzConnectDiagnostic('qconnect:report_playback_state:error', 'warn', {
+            source: 'interval',
+            error: String(err),
+            payload
+          });
+        });
       }
     }, 2000);
 
@@ -3890,14 +3897,22 @@
         const durationMs = Math.round((playerState.duration || 0) * 1000);
         // Report immediately on play/pause change or track change
         if (wasPlaying !== isPlaying || trackChanged) {
-          invoke('v2_qconnect_report_playback_state', {
+          const payload = {
             playingState: playingState,
             currentPosition: positionMs,
             duration: durationMs,
             currentQueueItemId: null,
             nextQueueItemId: null,
-            currentTrackId: currentTrack?.id ?? null,
-          }).catch(() => {});
+            currentTrackId: currentTrack?.id ?? null
+          };
+          logQconnectPlaybackReport('player_transition', payload);
+          invoke('v2_qconnect_report_playback_state', payload).catch((err) => {
+            pushQobuzConnectDiagnostic('qconnect:report_playback_state:error', 'warn', {
+              source: 'player_transition',
+              error: String(err),
+              payload
+            });
+          });
         }
       }
 
@@ -4124,6 +4139,8 @@
     let unlistenQconnectEvent: UnlistenFn | null = null;
     let unlistenQconnectError: UnlistenFn | null = null;
     let unlistenQconnectAdmissionBlocked: UnlistenFn | null = null;
+    let unlistenQconnectDiagnostic: UnlistenFn | null = null;
+    let unlistenQconnectRendererReportDebug: UnlistenFn | null = null;
 
     (async () => {
       const unlisten1 = await listen('tray:play_pause', () => {
@@ -4280,6 +4297,22 @@
       });
       if (disposed) { unlisten8(); return; }
       unlistenQconnectAdmissionBlocked = unlisten8;
+
+      const unlisten9 = await listen<QconnectDiagnosticsPayload>('qconnect:diagnostic', (event) => {
+        pushQobuzConnectDiagnostic(
+          event.payload.channel,
+          event.payload.level ?? 'info',
+          event.payload.payload
+        );
+      });
+      if (disposed) { unlisten9(); return; }
+      unlistenQconnectDiagnostic = unlisten9;
+
+      const unlisten10 = await listen<QconnectRendererReportDebugPayload>('qconnect:renderer_report_debug', (event) => {
+        pushQobuzConnectDiagnostic('qconnect:renderer_report_debug', 'info', event.payload);
+      });
+      if (disposed) { unlisten10(); return; }
+      unlistenQconnectRendererReportDebug = unlisten10;
     })();
 
     return () => {
@@ -4294,6 +4327,8 @@
       unlistenQconnectEvent?.();
       unlistenQconnectError?.();
       unlistenQconnectAdmissionBlocked?.();
+      unlistenQconnectDiagnostic?.();
+      unlistenQconnectRendererReportDebug?.();
       // Save session before cleanup
       saveSessionBeforeClose();
       cleanupBootstrap();

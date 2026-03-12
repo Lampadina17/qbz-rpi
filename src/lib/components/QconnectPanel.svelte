@@ -5,26 +5,18 @@
   import Modal from '$lib/components/Modal.svelte';
   import { t } from '$lib/i18n';
   import { showToast } from '$lib/stores/toastStore';
+  import type {
+    QconnectQueueItemSnapshot,
+    QconnectQueueSnapshot,
+    QconnectRendererTrackSnapshot,
+    QconnectRendererSnapshot
+  } from '$lib/services/qconnectRemoteQueue';
 
   interface QconnectConnectionStatus {
     running: boolean;
     transport_connected: boolean;
     endpoint_url?: string | null;
     last_error?: string | null;
-  }
-
-  interface QconnectQueueSnapshot {
-    version: { major: number; minor: number };
-    queue_items: Array<unknown>;
-    autoplay_items: Array<unknown>;
-    shuffle_mode: boolean;
-    autoplay_mode: boolean;
-  }
-
-  interface QconnectRendererSnapshot {
-    playing_state?: number | null;
-    volume?: number | null;
-    muted?: boolean | null;
   }
 
   interface QconnectRendererInfo {
@@ -195,6 +187,19 @@
   function formatTimestamp(ts: number): string {
     return new Date(ts).toLocaleTimeString();
   }
+
+  function formatTrackRef(
+    track: QconnectQueueItemSnapshot | QconnectRendererTrackSnapshot | null | undefined
+  ): string {
+    if (!track || track.track_id == null || track.queue_item_id == null) {
+      return $t('qconnect.notAvailable');
+    }
+    return `track ${track.track_id} / qid ${track.queue_item_id}`;
+  }
+
+  function queuePreview(queueItems: QconnectQueueItemSnapshot[] | null | undefined): QconnectQueueItemSnapshot[] {
+    return (queueItems ?? []).slice(0, 6);
+  }
 </script>
 
 <Modal
@@ -336,7 +341,7 @@
         <div class="runtime-line">
           <span>{$t('qconnect.queueVersionLabel')}</span>
           <strong>
-            {#if queueSnapshot}
+            {#if queueSnapshot?.version}
               {queueSnapshot.version.major}.{queueSnapshot.version.minor}
             {:else}
               {$t('qconnect.notAvailable')}
@@ -355,6 +360,21 @@
           <span>{$t('qconnect.shuffleModeLabel')}</span>
           <strong>{queueSnapshot ? safeValue(queueSnapshot.shuffle_mode) : $t('qconnect.notAvailable')}</strong>
         </div>
+        <div class="runtime-preview">
+          <span class="preview-label">{$t('qconnect.queuePreviewTitle')}</span>
+          {#if queueSnapshot && queueSnapshot.queue_items.length > 0}
+            <div class="preview-list">
+              {#each queuePreview(queueSnapshot.queue_items) as queueItem, index (queueItem.queue_item_id)}
+                <div class="preview-row">
+                  <span class="preview-index">{index + 1}.</span>
+                  <span class="preview-track">{formatTrackRef(queueItem)}</span>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <strong>{$t('qconnect.notAvailable')}</strong>
+          {/if}
+        </div>
       </div>
 
       <div class="runtime-card">
@@ -370,6 +390,18 @@
         <div class="runtime-line">
           <span>{$t('qconnect.mutedLabel')}</span>
           <strong>{rendererSnapshot ? safeValue(rendererSnapshot.muted) : $t('qconnect.notAvailable')}</strong>
+        </div>
+        <div class="runtime-line">
+          <span>{$t('qconnect.currentTrackLabel')}</span>
+          <strong>{rendererSnapshot ? formatTrackRef(rendererSnapshot.current_track) : $t('qconnect.notAvailable')}</strong>
+        </div>
+        <div class="runtime-line">
+          <span>{$t('qconnect.nextTrackLabel')}</span>
+          <strong>{rendererSnapshot ? formatTrackRef(rendererSnapshot.next_track) : $t('qconnect.notAvailable')}</strong>
+        </div>
+        <div class="runtime-line">
+          <span>{$t('qconnect.positionMsLabel')}</span>
+          <strong>{rendererSnapshot ? safeValue(rendererSnapshot.current_position_ms) : $t('qconnect.notAvailable')}</strong>
         </div>
       </div>
     </section>
@@ -663,6 +695,44 @@
   .runtime-line strong {
     color: var(--text-primary);
     font-weight: 600;
+  }
+
+  .runtime-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--bg-tertiary);
+  }
+
+  .preview-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .preview-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .preview-row {
+    display: flex;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .preview-index {
+    min-width: 18px;
+    color: var(--text-muted);
+  }
+
+  .preview-track {
+    word-break: break-word;
   }
 
   .diagnostics-toggle {

@@ -313,6 +313,22 @@ pub struct QconnectSessionState {
     pub renderers: Vec<QconnectRendererInfo>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct QconnectRendererReportDebugEvent {
+    requested_current_queue_item_id: Option<i32>,
+    requested_next_queue_item_id: Option<i32>,
+    resolved_current_queue_item_id: Option<i32>,
+    resolved_next_queue_item_id: Option<i32>,
+    sent_current_queue_item_id: Option<i32>,
+    sent_next_queue_item_id: Option<i32>,
+    current_track_id: Option<i64>,
+    playing_state: i32,
+    current_position: Option<i32>,
+    duration: Option<i32>,
+    queue_version: QconnectQueueVersionPayload,
+    resolution_strategy: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QconnectRendererInfo {
     pub renderer_id: i32,
@@ -1193,6 +1209,7 @@ fn model_track_to_core_queue_track(track: &Track) -> QueueTrack {
         artist_id,
         streamable: track.streamable,
         source: Some(QCONNECT_REMOTE_QUEUE_SOURCE.to_string()),
+        parental_warning: track.parental_warning,
     }
 }
 
@@ -1699,11 +1716,20 @@ pub async fn v2_qconnect_report_playback_state(
     current_queue_item_id: Option<i32>,
     next_queue_item_id: Option<i32>,
     current_track_id: Option<i64>,
+    app_handle: AppHandle,
     service: State<'_, QconnectServiceState>,
 ) -> Result<(), RuntimeError> {
     if !service.is_active().await {
         return Ok(());
     }
+
+    let requested_current_qid = current_queue_item_id;
+    let requested_next_qid = next_queue_item_id;
+    let mut resolution_strategy = if current_queue_item_id.is_some() {
+        "frontend_provided".to_string()
+    } else {
+        "renderer_snapshot".to_string()
+    };
 
     // Auto-fill queue_item_ids from renderer state if not provided by frontend.
     // The frontend doesn't know about QConnect queue_item_ids, but the renderer
@@ -1728,9 +1754,14 @@ pub async fn v2_qconnect_report_playback_state(
                     .await
                 {
                     resolved_current_qid = i32::try_from(qid).ok();
+                    resolution_strategy = "queue_lookup_by_track_id".to_string();
                 }
             }
         }
+    }
+
+    if resolved_current_qid.is_none() && requested_current_qid.is_none() {
+        resolution_strategy = "unresolved".to_string();
     }
 
     let queue_version = service.get_queue_version().await;
@@ -1769,6 +1800,29 @@ pub async fn v2_qconnect_report_playback_state(
 
     if let Err(err) = service.send_renderer_report(report).await {
         log::warn!("[QConnect] Failed to report playback state: {err}");
+    }
+
+    if let Err(err) = app_handle.emit(
+        "qconnect:renderer_report_debug",
+        &QconnectRendererReportDebugEvent {
+            requested_current_queue_item_id: requested_current_qid,
+            requested_next_queue_item_id: requested_next_qid,
+            resolved_current_queue_item_id: resolved_current_qid,
+            resolved_next_queue_item_id: resolved_next_qid,
+            sent_current_queue_item_id: None,
+            sent_next_queue_item_id: None,
+            current_track_id,
+            playing_state,
+            current_position,
+            duration,
+            queue_version: QconnectQueueVersionPayload {
+                major: queue_version.major,
+                minor: queue_version.minor,
+            },
+            resolution_strategy,
+        },
+    ) {
+        log::debug!("[QConnect] Failed to emit renderer report debug event: {err}");
     }
 
     // Keep the QConnect app's renderer position in sync with the actual playback position.
