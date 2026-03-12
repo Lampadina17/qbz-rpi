@@ -199,8 +199,15 @@ impl PlaybackEngine {
         }
     }
 
-    /// Stop
-    pub fn stop(self) {
+    /// Stop playback and release resources.
+    /// For ALSA Direct, signals the writer thread and waits for it to exit.
+    /// The Drop impl handles the same cleanup if stop() is not called explicitly.
+    pub fn stop(mut self) {
+        self.stop_inner();
+    }
+
+    /// Internal stop logic shared by stop() and Drop
+    fn stop_inner(&mut self) {
         match self {
             Self::Rodio { sink } => {
                 sink.stop();
@@ -212,11 +219,14 @@ impl PlaybackEngine {
                 playback_thread,
                 ..
             } => {
+                if should_stop.load(Ordering::SeqCst) {
+                    return; // Already stopped
+                }
                 log::info!("[ALSA Direct Engine] Stop requested");
                 should_stop.store(true, Ordering::SeqCst);
                 is_playing.store(false, Ordering::SeqCst);
 
-                if let Some(handle) = playback_thread {
+                if let Some(handle) = playback_thread.take() {
                     let _ = handle.join();
                 }
 
@@ -423,4 +433,10 @@ fn alsa_writer_thread(
 
     is_playing.store(false, Ordering::SeqCst);
     log::info!("[ALSA Direct Engine] Writer thread finished");
+}
+
+impl Drop for PlaybackEngine {
+    fn drop(&mut self) {
+        self.stop_inner();
+    }
 }

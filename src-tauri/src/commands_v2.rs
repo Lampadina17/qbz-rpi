@@ -322,9 +322,8 @@ async fn download_audio(url: &str) -> Result<Vec<u8>, String> {
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        .no_gzip()
-        .no_brotli()
-        .no_deflate()
+        .timeout(Duration::from_secs(120))
+        .http1_only()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -332,7 +331,6 @@ async fn download_audio(url: &str) -> Result<Vec<u8>, String> {
 
     let response = client
         .get(url)
-        .header("User-Agent", "Mozilla/5.0")
         .send()
         .await
         .map_err(|e| format!("Failed to fetch audio: {}", e))?;
@@ -349,7 +347,18 @@ async fn download_audio(url: &str) -> Result<Vec<u8>, String> {
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("Failed to read audio bytes: {}", e))?;
+        .map_err(|e| {
+            // Log detailed error chain for debugging
+            use std::error::Error as _;
+            let mut msg = format!("Failed to read audio bytes: {}", e);
+            let mut source = e.source();
+            while let Some(cause) = source {
+                msg.push_str(&format!(" | caused by: {}", cause));
+                source = cause.source();
+            }
+            log::error!("[V2] Download error details: {}", msg);
+            msg
+        })?;
 
     log::info!("[V2] Downloaded {} bytes", bytes.len());
     Ok(bytes.to_vec())
@@ -371,9 +380,7 @@ async fn v2_get_stream_info(url: &str) -> Result<V2StreamInfo, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
-        .no_gzip()
-        .no_brotli()
-        .no_deflate()
+        .http1_only()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -463,9 +470,8 @@ async fn v2_download_and_stream(
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        .no_gzip()
-        .no_brotli()
-        .no_deflate()
+        .timeout(Duration::from_secs(300))
+        .http1_only()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -493,7 +499,16 @@ async fn v2_download_and_stream(
     let mut last_log_time = Instant::now();
 
     while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| format!("Stream chunk error: {}", e))?;
+        let chunk = chunk_result.map_err(|e| {
+            let mut msg = format!("Stream chunk error: {}", e);
+            let mut source = std::error::Error::source(&e);
+            while let Some(cause) = source {
+                msg.push_str(&format!(" | caused by: {}", cause));
+                source = std::error::Error::source(cause);
+            }
+            log::error!("[V2/STREAMING] Chunk error details: {}", msg);
+            msg
+        })?;
         bytes_received += chunk.len() as u64;
 
         all_data.extend_from_slice(&chunk);
