@@ -53,10 +53,11 @@
   const SMOOTHING_PASSES = 3;
   const SMOOTHING_POINTS = 9;
 
-  // Variable exponential transform (musicvid: Exponential settings)
-  // Bass gets higher exponent = sharper peaks; treble gets lower = softer
-  const SPECTRUM_MAX_EXPONENT = 6; // Applied to bass (bin 0)
-  const SPECTRUM_MIN_EXPONENT = 3; // Applied to treble (last bin)
+  // Variable exponential transform — reduced from musicvid's 6/3 because
+  // with per-frame normalization, high exponents crush everything except
+  // the loudest bin. 3.5/1.8 preserves moderate peaks across the spectrum.
+  const SPECTRUM_MAX_EXPONENT = 3.5; // Applied to bass (bin 0)
+  const SPECTRUM_MIN_EXPONENT = 1.8; // Applied to treble (last bin)
   const SPECTRUM_EXPONENT_SCALE = 2; // Power curve for exponent interpolation
 
   // Head margin (musicvid: Smoothing > headMargin/tailMargin settings)
@@ -295,17 +296,17 @@
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
-    // Perspective: musicvid camera at (1173, 1738, 868), rotX=-0.6543 (~37.5° down).
-    // 200 lines with spacing=20 → back lines pack tightly (2-3px apart) creating
-    // solid "3D mountain ridges"; front lines spread out showing individual curves.
+    // Perspective: "table seen from above" — a contained rectangle in perspective.
+    // musicvid's terrain is roughly square, NOT an infinite conveyor belt.
+    // Back ~55% width, front ~80% width, both clearly visible.
 
-    // Back line (far, top of canvas): narrow, centered
-    const backY = height * 0.25;
-    const backLineWidth = width * 0.20;
+    // Back line (far, top): visible width, clearly defined edge
+    const backY = height * 0.28;
+    const backLineWidth = width * 0.50;
 
-    // Front line (close, bottom of canvas): wide, centered
-    const frontY = height * 0.98;
-    const frontLineWidth = width * 1.05;
+    // Front line (close, bottom): wider but contained within canvas
+    const frontY = height * 0.82;
+    const frontLineWidth = width * 0.82;
 
     // Draw lines from back to front (painter's algorithm).
     // Data direction: NEWEST at back, scrolls toward front/viewer.
@@ -314,22 +315,22 @@
       const bufIdx = (historyIndex - 1 - lineIdx + NUM_LINES * 2) % NUM_LINES;
       const spectrum = history[bufIdx];
 
-      // Depth compression: back lines tightly packed, front lines spread.
-      // Power 1.8 → back 50% of lines use only ~28% of vertical space.
+      // Moderate depth compression for table-like perspective
       const rawFactor = lineIdx / (NUM_LINES - 1);
-      const depthFactor = Math.pow(rawFactor, 1.8);
+      const depthFactor = Math.pow(rawFactor, 1.5);
 
       // Interpolate Y and width from back to front
       const baseY = backY + (frontY - backY) * depthFactor;
       const currentLineWidth = backLineWidth + (frontLineWidth - backLineWidth) * depthFactor;
       const lineLeft = (width - currentLineWidth) / 2; // Centered
 
-      // Amplitude: tall peaks (musicvid spectrumHeight: 770, spacing: 20 = 38.5x ratio)
-      const amplitudeScale = 0.05 + depthFactor * 0.95;
-      const maxAmplitude = height * 0.55 * amplitudeScale;
+      // Amplitude: moderate peaks spread across the terrain, not towering spikes
+      const amplitudeScale = 0.15 + depthFactor * 0.85;
+      const maxAmplitude = height * 0.35 * amplitudeScale;
 
-      // Opacity: fades at back, bright at front
-      const opacity = 0.06 + depthFactor * 0.94;
+      // Opacity: ALL lines clearly visible — no fade to black at back.
+      // musicvid shows every line including the back edge.
+      const opacity = 0.45 + depthFactor * 0.55;
 
       // Occlusion pass: fill below the spectrum line with black
       ctx.beginPath();
@@ -344,7 +345,7 @@
       ctx.beginPath();
       buildSpectrumPath(spectrum, lineLeft, currentLineWidth, baseY, maxAmplitude);
 
-      const lineWeight = 0.2 + depthFactor * 1.1;
+      const lineWeight = 0.4 + depthFactor * 0.4;
       ctx.strokeStyle = `rgba(${lineColor.r}, ${lineColor.g}, ${lineColor.b}, ${opacity})`;
       ctx.lineWidth = lineWeight;
       ctx.stroke();
