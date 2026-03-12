@@ -253,14 +253,17 @@
     const frontLineWidth = width * 0.95;
     const backLineWidth = width * 0.18;
 
-    // Draw lines from back (oldest) to front (newest) for correct occlusion
+    // Draw lines from back to front (painter's algorithm).
+    // lineIdx 0 = back (top, narrow, faded), lineIdx N-1 = front (bottom, wide, bright).
+    // Data direction: NEWEST at back, scrolls toward front (musicvid.org LineBed style).
+    // This creates the "audio flowing from far away toward the viewer" effect.
     for (let lineIdx = 0; lineIdx < NUM_LINES; lineIdx++) {
-      // Map lineIdx: 0=oldest (back), NUM_LINES-1=newest (front)
-      const bufIdx = (historyIndex + lineIdx) % NUM_LINES;
+      // Reverse mapping: lineIdx=0 (back) = newest data, lineIdx=N-1 (front) = oldest
+      // historyIndex-1 = most recently written snapshot
+      const bufIdx = (historyIndex - 1 - lineIdx + NUM_LINES * 2) % NUM_LINES;
       const spectrum = history[bufIdx];
 
       // Non-linear depth factor: compress lines at back, spread at front
-      // Uses a power curve for perspective compression
       const rawFactor = lineIdx / (NUM_LINES - 1);
       const depthFactor = Math.pow(rawFactor, 1.6);
 
@@ -271,17 +274,17 @@
       const currentLineWidth = backLineWidth + depthFactor * (frontLineWidth - backLineWidth);
       const lineLeft = (width - currentLineWidth) / 2;
 
-      // Amplitude scale: much taller at front, tiny at back
-      const amplitudeScale = 0.05 + depthFactor * 0.95;
-      const maxAmplitude = bedHeight * 0.4 * amplitudeScale;
+      // Amplitude: back lines (newest, active audio) have visible peaks,
+      // front lines (oldest, decayed) are flatter. Scale by depth for perspective.
+      const amplitudeScale = 0.1 + depthFactor * 0.9;
+      const maxAmplitude = bedHeight * 0.45 * amplitudeScale;
 
-      // Opacity: fades to near-invisible at back
-      const opacity = 0.03 + depthFactor * 0.97;
+      // Opacity: back lines slightly faded for depth, front lines bright
+      const opacity = 0.06 + depthFactor * 0.94;
 
       // Occlusion pass: fill below the spectrum line with black
       ctx.beginPath();
       buildSpectrumPath(spectrum, lineLeft, currentLineWidth, baseY, maxAmplitude);
-      // Close shape below for occlusion
       ctx.lineTo(lineLeft + currentLineWidth, baseY + 3);
       ctx.lineTo(lineLeft, baseY + 3);
       ctx.closePath();
@@ -292,7 +295,6 @@
       ctx.beginPath();
       buildSpectrumPath(spectrum, lineLeft, currentLineWidth, baseY, maxAmplitude);
 
-      // Line weight: thicker at front
       const lineWeight = 0.3 + depthFactor * 1.2;
       ctx.strokeStyle = `rgba(${lineColor.r}, ${lineColor.g}, ${lineColor.b}, ${opacity})`;
       ctx.lineWidth = lineWeight;
