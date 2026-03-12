@@ -323,7 +323,7 @@ async fn download_audio(url: &str) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(120))
-        .http1_only()
+        .use_native_tls()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -344,24 +344,46 @@ async fn download_audio(url: &str) -> Result<Vec<u8>, String> {
         log::info!("[V2] Downloading audio: {} bytes expected", len);
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| {
-            // Log detailed error chain for debugging
-            use std::error::Error as _;
-            let mut msg = format!("Failed to read audio bytes: {}", e);
-            let mut source = e.source();
-            while let Some(cause) = source {
-                msg.push_str(&format!(" | caused by: {}", cause));
-                source = cause.source();
-            }
-            log::error!("[V2] Download error details: {}", msg);
-            msg
-        })?;
+    // Stream body in chunks to handle partial reads gracefully
+    let expected_len = content_length.unwrap_or(0) as usize;
+    let mut all_data = Vec::with_capacity(expected_len);
+    let mut stream = response.bytes_stream();
 
-    log::info!("[V2] Downloaded {} bytes", bytes.len());
-    Ok(bytes.to_vec())
+    use futures_util::StreamExt;
+    while let Some(chunk_result) = stream.next().await {
+        match chunk_result {
+            Ok(chunk) => all_data.extend_from_slice(&chunk),
+            Err(e) => {
+                use std::error::Error as _;
+                let mut msg = format!("Failed to read audio bytes: {}", e);
+                let mut source = e.source();
+                while let Some(cause) = source {
+                    msg.push_str(&format!(" | caused by: {}", cause));
+                    source = cause.source();
+                }
+                // If we got some data but not all, log what we received
+                if !all_data.is_empty() {
+                    log::error!(
+                        "[V2] Download error after {}/{} bytes: {}",
+                        all_data.len(), expected_len, msg
+                    );
+                } else {
+                    log::error!("[V2] Download error (0 bytes received): {}", msg);
+                }
+                return Err(msg);
+            }
+        }
+    }
+
+    if expected_len > 0 && all_data.len() != expected_len {
+        log::warn!(
+            "[V2] Download size mismatch: got {} bytes, expected {}",
+            all_data.len(), expected_len
+        );
+    }
+
+    log::info!("[V2] Downloaded {} bytes", all_data.len());
+    Ok(all_data)
 }
 
 /// Stream info from probing a URL (HEAD + first 64KB)
@@ -380,7 +402,7 @@ async fn v2_get_stream_info(url: &str) -> Result<V2StreamInfo, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
-        .http1_only()
+        .use_native_tls()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -471,7 +493,7 @@ async fn v2_download_and_stream(
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(300))
-        .http1_only()
+        .use_native_tls()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -1903,7 +1925,26 @@ fn spawn_v2_prefetch_with_hw_check(
                     log::info!("[V2/PREFETCH] Complete for track {}", track_id);
                 }
                 Err(e) => {
-                    log::warn!("[V2/PREFETCH] Failed for track {}: {}", track_id, e);
+                    log::warn!("[V2/PREFETCH] Failed for track {} (attempt 1): {}", track_id, e);
+                    // Retry with fresh URL — CDN edge may have returned EOF
+                    log::info!("[V2/PREFETCH] Retrying track {} with fresh URL...", track_id);
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let retry_result = async {
+                        let bridge_guard = bridge_clone.read().await;
+                        let bridge = bridge_guard.as_ref().ok_or("CoreBridge not initialized")?;
+                        let stream_url = bridge.get_stream_url(track_id, quality).await?;
+                        drop(bridge_guard);
+                        download_audio(&stream_url.url).await
+                    }.await;
+                    match retry_result {
+                        Ok(data) => {
+                            cache_clone.insert(track_id, data);
+                            log::info!("[V2/PREFETCH] Complete for track {} (retry succeeded)", track_id);
+                        }
+                        Err(e2) => {
+                            log::warn!("[V2/PREFETCH] Failed for track {} (attempt 2): {}", track_id, e2);
+                        }
+                    }
                 }
             }
 
@@ -7309,9 +7350,46 @@ pub async fn v2_play_track(
             !streaming_only
         );
 
-        let stream_info = v2_get_stream_info(&stream_url.url)
-            .await
-            .map_err(RuntimeError::Internal)?;
+        let stream_info = match v2_get_stream_info(&stream_url.url).await {
+            Ok(info) => info,
+            Err(e) => {
+                // Probe failed (CDN EOF, etc.) — fall through to standard download path
+                log::warn!(
+                    "[V2/STREAMING] Probe failed for track {}: {}. Falling back to full download.",
+                    track_id, e
+                );
+                // Get a fresh URL and use the standard download path below
+                let retry_url = bridge_guard
+                    .get_stream_url(track_id, final_quality)
+                    .await
+                    .map_err(RuntimeError::Internal)?;
+                stream_url = retry_url;
+                // Set stream_first_enabled to false to skip the streaming block
+                // and fall through to the standard download path
+                let audio_data = match download_audio(&stream_url.url).await {
+                    Ok(data) => data,
+                    Err(e2) => {
+                        log::warn!("[V2/DOWNLOAD] Retry also failed for track {}: {}", track_id, e2);
+                        return Err(RuntimeError::Internal(format!(
+                            "Download failed after retry: {}", e2
+                        )));
+                    }
+                };
+                let data_size = audio_data.len();
+                if !streaming_only {
+                    cache.insert(track_id, audio_data.clone());
+                }
+                player.play_data(audio_data, track_id).map_err(RuntimeError::Internal)?;
+                log::info!("[V2] Playing track {} ({} bytes, fallback from streaming)", track_id, data_size);
+                let upcoming_tracks = bridge_guard.peek_upcoming(V2_PREFETCH_LOOKAHEAD).await;
+                drop(bridge_guard);
+                spawn_v2_prefetch_with_hw_check(
+                    bridge.0.clone(), cache, upcoming_tracks,
+                    final_quality, streaming_only, hw_device_id,
+                );
+                return Ok(V2PlayTrackResult { format_id: Some(stream_url.format_id) });
+            }
+        };
 
         log::info!(
             "[V2/STREAMING] Info: {:.2} MB, {}Hz, {} ch, {}-bit, {:.1} MB/s",
@@ -7393,9 +7471,22 @@ pub async fn v2_play_track(
         track_id,
         !streaming_only
     );
-    let audio_data = download_audio(&stream_url.url)
-        .await
-        .map_err(RuntimeError::Internal)?;
+    let audio_data = match download_audio(&stream_url.url).await {
+        Ok(data) => data,
+        Err(e) => {
+            log::warn!("[V2/DOWNLOAD] First attempt failed for track {}: {}", track_id, e);
+            // Retry with fresh URL — CDN edge may have returned premature EOF
+            log::info!("[V2/DOWNLOAD] Retrying track {} with fresh URL...", track_id);
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let retry_url = bridge_guard
+                .get_stream_url(track_id, final_quality)
+                .await
+                .map_err(RuntimeError::Internal)?;
+            download_audio(&retry_url.url)
+                .await
+                .map_err(RuntimeError::Internal)?
+        }
+    };
     let data_size = audio_data.len();
 
     // Cache it (unless streaming_only mode)
