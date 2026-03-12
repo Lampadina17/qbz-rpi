@@ -23,6 +23,7 @@
   import LissajousPanel from './panels/LissajousPanel.svelte';
   import TransientPulsePanel from './panels/TransientPulsePanel.svelte';
   import AlbumReactivePanel from './panels/AlbumReactivePanel.svelte';
+  import LinebedPanel from './panels/LinebedPanel.svelte';
   import LyricsFocusPanel from './panels/LyricsFocusPanel.svelte';
   import QualityBadge from '$lib/components/QualityBadge.svelte';
   import { getUserItem, setUserItem } from '$lib/utils/userStorage';
@@ -647,6 +648,21 @@
           {artist}
           {album}
           {isPlaying}
+          {quality}
+          {bitDepth}
+          {samplingRate}
+          {originalBitDepth}
+          {originalSamplingRate}
+          {format}
+          {explicit}
+        />
+      {:else if activeFocusTab === 'linebed'}
+        <LinebedPanel
+          enabled={true}
+          {artwork}
+          {trackTitle}
+          {artist}
+          {album}
           {quality}
           {bitDepth}
           {samplingRate}

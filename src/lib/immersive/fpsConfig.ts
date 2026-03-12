@@ -21,7 +21,8 @@ export type ImmersivePanelId =
   | 'energy-bands'
   | 'transient-pulse'
   | 'album-reactive'
-  | 'spectral-ribbon';
+  | 'spectral-ribbon'
+  | 'linebed';
 
 /**
  * Get the configured FPS for a panel.

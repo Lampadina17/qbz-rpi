@@ -862,6 +862,7 @@
         "neon-flow": "Neon Flow",
         "tunnel-flow": "Tunnel",
         "comet-flow": "Comet",
+        "linebed": "Linebed",
         "lyrics-focus": "Lyrics",
         "queue-focus": "Queue",
         "split-lyrics": "Split: Lyrics",
@@ -901,7 +902,8 @@
           "neon-laser": "Laser",
           "neon-flow": "Neon Flow",
           "tunnel-flow": "Tunnel",
-          "comet-flow": "Comet"
+          "comet-flow": "Comet",
+          "linebed": "Linebed"
         }
       },
       "fpsOptions": {

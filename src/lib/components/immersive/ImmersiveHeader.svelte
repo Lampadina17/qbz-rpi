@@ -4,10 +4,10 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
   export type ImmersiveTab = 'lyrics' | 'trackInfo' | 'suggestions' | 'queue';
-  export type FocusTab = 'coverflow' | 'static' | 'visualizer' | 'neon-flow' | 'tunnel-flow' | 'comet-flow' | 'oscilloscope' | 'spectral-ribbon' | 'energy-bands' | 'lissajous' | 'transient-pulse' | 'album-reactive' | 'lyrics-focus' | 'queue-focus';
+  export type FocusTab = 'coverflow' | 'static' | 'visualizer' | 'neon-flow' | 'tunnel-flow' | 'comet-flow' | 'oscilloscope' | 'spectral-ribbon' | 'energy-bands' | 'lissajous' | 'transient-pulse' | 'album-reactive' | 'linebed' | 'lyrics-focus' | 'queue-focus';
   export type ViewMode = 'focus' | 'split';
 
-  const VISUALIZER_TABS: FocusTab[] = ['visualizer', 'neon-flow', 'tunnel-flow', 'comet-flow', 'oscilloscope', 'spectral-ribbon', 'energy-bands', 'lissajous', 'transient-pulse', 'album-reactive'];
+  const VISUALIZER_TABS: FocusTab[] = ['visualizer', 'neon-flow', 'tunnel-flow', 'comet-flow', 'oscilloscope', 'spectral-ribbon', 'energy-bands', 'lissajous', 'transient-pulse', 'album-reactive', 'linebed'];
 
   interface Props {
     viewMode: ViewMode;
@@ -140,6 +140,7 @@
     { id: 'lissajous', labelKey: 'settings.appearance.immersiveFps.panels.lissajous', icon: Crosshair },
     { id: 'transient-pulse', labelKey: 'settings.appearance.immersiveFps.panels.transient-pulse', icon: Zap },
     { id: 'album-reactive', labelKey: 'settings.appearance.immersiveFps.panels.album-reactive', icon: HeartPulse },
+    { id: 'linebed', labelKey: 'settings.appearance.immersiveFps.panels.linebed', icon: AudioWaveform },
   ];
 
   const isVisualizerActive = $derived(VISUALIZER_TABS.includes(activeFocusTab));
