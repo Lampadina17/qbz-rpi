@@ -322,6 +322,9 @@ async fn download_audio(url: &str) -> Result<Vec<u8>, String> {
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -368,6 +371,9 @@ async fn v2_get_stream_info(url: &str) -> Result<V2StreamInfo, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -457,6 +463,9 @@ async fn v2_download_and_stream(
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -802,17 +811,21 @@ pub async fn runtime_bootstrap(
 
                 // Step 4: Wait for CoreBridge init, then authenticate V2 - REQUIRED per ADR
                 let cb_start = std::time::Instant::now();
-                let cb_timeout = std::time::Duration::from_secs(10);
-                let cb_poll = std::time::Duration::from_millis(50);
+                let cb_timeout = std::time::Duration::from_secs(30);
+                let cb_poll = std::time::Duration::from_millis(100);
 
                 loop {
                     if core_bridge.try_get().await.is_some() {
                         break;
                     }
-                    if cb_start.elapsed() > cb_timeout {
-                        log::error!("[Runtime] CoreBridge not available after 10s");
+                    let elapsed = cb_start.elapsed();
+                    if elapsed > cb_timeout {
+                        log::error!("[Runtime] CoreBridge not available after 30s");
                         manager.set_bootstrap_in_progress(false).await;
                         return Err(RuntimeError::V2NotInitialized);
+                    }
+                    if elapsed.as_secs() % 5 == 0 && elapsed.as_millis() % 5000 < 150 {
+                        log::info!("[Runtime] Waiting for CoreBridge... ({:.0}s)", elapsed.as_secs_f64());
                     }
                     tokio::time::sleep(cb_poll).await;
                 }
@@ -914,13 +927,13 @@ pub async fn runtime_bootstrap(
 
                 // Wait for CoreBridge, then inject session
                 let cb_start = std::time::Instant::now();
-                let cb_timeout = std::time::Duration::from_secs(10);
+                let cb_timeout = std::time::Duration::from_secs(30);
                 loop {
                     if core_bridge.try_get().await.is_some() {
                         break;
                     }
                     if cb_start.elapsed() > cb_timeout {
-                        log::error!("[Runtime] CoreBridge not available after 10s (OAuth restore)");
+                        log::error!("[Runtime] CoreBridge not available after 30s (OAuth restore)");
                         manager.set_bootstrap_in_progress(false).await;
                         return Err(RuntimeError::V2NotInitialized);
                     }
