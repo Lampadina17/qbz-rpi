@@ -2148,7 +2148,20 @@
   // Skip track handlers - wired to backend queue via queueStore
   async function handleSkipBack() {
     const playerState = getPlayerState();
-    if (!playerState.currentTrack || playerState.isSkipping) return;
+    if (playerState.isSkipping) return;
+
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_skip_previous_if_remote');
+      if (handledRemotely) {
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off previous track to remote renderer:', err);
+      showToast($t('toast.failedPreviousTrack'), 'error');
+      return;
+    }
+
+    if (!playerState.currentTrack) return;
     // If more than 3 seconds in, restart track; otherwise go to previous
     if (playerState.currentTime > 3) {
       handleSeek(0);
@@ -2174,7 +2187,20 @@
 
   async function handleSkipForward() {
     const playerState = getPlayerState();
-    if (!playerState.currentTrack || playerState.isSkipping) return;
+    if (playerState.isSkipping) return;
+
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_skip_next_if_remote');
+      if (handledRemotely) {
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off next track to remote renderer:', err);
+      showToast($t('toast.failedNextTrack'), 'error');
+      return;
+    }
+
+    if (!playerState.currentTrack) return;
 
     setIsSkipping(true);
     try {

@@ -1009,6 +1009,97 @@ impl QconnectServiceState {
             (None, None)
         }
     }
+
+    async fn skip_remote_renderer_if_active(
+        &self,
+        direction: QconnectRemoteSkipDirection,
+        app_handle: &AppHandle,
+    ) -> Result<bool, String> {
+        let (app, session) = {
+            let guard = self.inner.lock().await;
+            let Some(runtime) = guard.runtime.as_ref() else {
+                return Ok(false);
+            };
+            let session = runtime.sync_state.lock().await.session.clone();
+            (Arc::clone(&runtime.app), session)
+        };
+
+        let active_renderer_id = session.active_renderer_id;
+        let local_renderer_id = session.local_renderer_id;
+        if active_renderer_id.is_none()
+            || local_renderer_id.is_none()
+            || active_renderer_id == local_renderer_id
+        {
+            return Ok(false);
+        }
+
+        let queue = app.queue_state_snapshot().await;
+        let renderer = app.renderer_state_snapshot().await;
+        let resolution = resolve_controller_queue_item_from_snapshots(&queue, &renderer, direction);
+
+        let diagnostic_payload = json!({
+            "direction": match direction {
+                QconnectRemoteSkipDirection::Next => "next",
+                QconnectRemoteSkipDirection::Previous => "previous",
+            },
+            "active_renderer_id": active_renderer_id,
+            "local_renderer_id": local_renderer_id,
+            "queue_version": {
+                "major": queue.version.major,
+                "minor": queue.version.minor,
+            },
+            "current_position_ms": renderer.current_position_ms,
+            "playing_state": renderer.playing_state,
+            "target_queue_item_id": resolution.target_queue_item_id,
+            "strategy": resolution.strategy,
+            "queue_index": resolution.queue_index,
+            "matched_track_id": resolution.matched_track_id,
+            "matched_queue_item_id": resolution.matched_queue_item_id,
+        });
+
+        let Some(target_queue_item_id) = resolution.target_queue_item_id else {
+            emit_qconnect_diagnostic(
+                app_handle,
+                "qconnect:controller_skip_handoff",
+                "warn",
+                diagnostic_payload,
+            );
+            return Err(format!(
+                "remote renderer active but no {} target queue item could be resolved",
+                match direction {
+                    QconnectRemoteSkipDirection::Next => "next",
+                    QconnectRemoteSkipDirection::Previous => "previous",
+                }
+            ));
+        };
+
+        let target_queue_item_id_i32 = i32::try_from(target_queue_item_id)
+            .map_err(|_| format!("target queue item id out of range: {target_queue_item_id}"))?;
+        let payload = serde_json::to_value(QconnectSetPlayerStateRequest {
+            playing_state: renderer.playing_state,
+            current_position: Some(0),
+            current_queue_item: Some(QconnectSetPlayerStateQueueItemPayload {
+                queue_version: Some(QconnectQueueVersionPayload {
+                    major: queue.version.major,
+                    minor: queue.version.minor,
+                }),
+                id: Some(target_queue_item_id_i32),
+            }),
+        })
+        .map_err(|err| format!("serialize controller skip payload: {err}"))?;
+
+        self.send_command(QueueCommandType::CtrlSrvrSetPlayerState, payload)
+            .await?;
+
+        emit_qconnect_diagnostic(
+            app_handle,
+            "qconnect:controller_skip_handoff",
+            "info",
+            diagnostic_payload,
+        );
+
+        Ok(true)
+    }
 }
 
 fn resolve_queue_item_ids_from_queue_state(
@@ -1063,6 +1154,240 @@ fn resolve_queue_item_ids_from_queue_state(
     }
 
     (None, None, None)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QconnectOrderedQueueCursor {
+    Queue(usize),
+    Autoplay(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QconnectRemoteSkipDirection {
+    Next,
+    Previous,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QconnectControllerQueueItemResolution {
+    target_queue_item_id: Option<u64>,
+    strategy: &'static str,
+    queue_index: Option<usize>,
+    matched_track_id: Option<u64>,
+    matched_queue_item_id: Option<u64>,
+}
+
+fn ordered_queue_cursors(queue: &QConnectQueueState) -> Vec<QconnectOrderedQueueCursor> {
+    queue
+        .queue_items
+        .iter()
+        .enumerate()
+        .map(|(index, _)| QconnectOrderedQueueCursor::Queue(index))
+        .chain(
+            queue.autoplay_items
+                .iter()
+                .enumerate()
+                .map(|(index, _)| QconnectOrderedQueueCursor::Autoplay(index)),
+        )
+        .collect()
+}
+
+fn queue_item_track_id_for_cursor(
+    queue: &QConnectQueueState,
+    cursor: QconnectOrderedQueueCursor,
+) -> Option<u64> {
+    match cursor {
+        QconnectOrderedQueueCursor::Queue(index) => queue.queue_items.get(index).map(|item| item.track_id),
+        QconnectOrderedQueueCursor::Autoplay(index) => {
+            queue.autoplay_items.get(index).map(|item| item.track_id)
+        }
+    }
+}
+
+fn normalized_queue_item_id_for_cursor(
+    queue: &QConnectQueueState,
+    cursor: QconnectOrderedQueueCursor,
+) -> Option<u64> {
+    match cursor {
+        QconnectOrderedQueueCursor::Queue(index) => {
+            Some(normalize_current_queue_item_id_from_queue_state(queue, index))
+        }
+        QconnectOrderedQueueCursor::Autoplay(index) => {
+            queue.autoplay_items.get(index).map(|item| item.queue_item_id)
+        }
+    }
+}
+
+fn find_cursor_index_by_queue_item_id(
+    cursors: &[QconnectOrderedQueueCursor],
+    queue: &QConnectQueueState,
+    queue_item_id: Option<u64>,
+) -> Option<usize> {
+    let queue_item_id = queue_item_id?;
+    cursors.iter().position(|cursor| {
+        normalized_queue_item_id_for_cursor(queue, *cursor) == Some(queue_item_id)
+            || match cursor {
+                QconnectOrderedQueueCursor::Queue(index) => queue
+                    .queue_items
+                    .get(*index)
+                    .map(|item| item.queue_item_id == queue_item_id)
+                    .unwrap_or(false),
+                QconnectOrderedQueueCursor::Autoplay(index) => queue
+                    .autoplay_items
+                    .get(*index)
+                    .map(|item| item.queue_item_id == queue_item_id)
+                    .unwrap_or(false),
+            }
+    })
+}
+
+fn find_cursor_index_by_track_id(
+    cursors: &[QconnectOrderedQueueCursor],
+    queue: &QConnectQueueState,
+    track_id: Option<u64>,
+) -> Option<usize> {
+    let track_id = track_id?;
+    cursors.iter().position(|cursor| {
+        queue_item_track_id_for_cursor(queue, *cursor) == Some(track_id)
+    })
+}
+
+fn find_cursor_index_by_track_id_before(
+    cursors: &[QconnectOrderedQueueCursor],
+    queue: &QConnectQueueState,
+    track_id: Option<u64>,
+    end_exclusive: usize,
+) -> Option<usize> {
+    let track_id = track_id?;
+    if end_exclusive == 0 {
+        return None;
+    }
+
+    for index in (0..end_exclusive).rev() {
+        if queue_item_track_id_for_cursor(queue, cursors[index]) == Some(track_id) {
+            return Some(index);
+        }
+    }
+
+    None
+}
+
+fn resolve_current_cursor_index_from_snapshots(
+    queue: &QConnectQueueState,
+    renderer: &QConnectRendererState,
+    cursors: &[QconnectOrderedQueueCursor],
+) -> (Option<usize>, &'static str) {
+    let current_queue_index =
+        find_cursor_index_by_queue_item_id(cursors, queue, renderer.current_track.as_ref().map(|item| item.queue_item_id));
+    if current_queue_index.is_some() {
+        return (current_queue_index, "renderer_current_queue_item_id_verified");
+    }
+
+    let next_queue_index =
+        find_cursor_index_by_queue_item_id(cursors, queue, renderer.next_track.as_ref().map(|item| item.queue_item_id));
+    let track_index_before_next = next_queue_index.and_then(|next_index| {
+        find_cursor_index_by_track_id_before(
+            cursors,
+            queue,
+            renderer.current_track.as_ref().map(|item| item.track_id),
+            next_index,
+        )
+    });
+    if track_index_before_next.is_some() {
+        return (track_index_before_next, "queue_track_id_before_renderer_next");
+    }
+
+    let current_track_index =
+        find_cursor_index_by_track_id(cursors, queue, renderer.current_track.as_ref().map(|item| item.track_id));
+    if current_track_index.is_some() {
+        return (current_track_index, "queue_track_id_match");
+    }
+
+    if let Some(next_index) = next_queue_index {
+        if next_index > 0 {
+            return (Some(next_index - 1), "queue_item_before_renderer_next");
+        }
+    }
+
+    (None, "no_current_queue_item")
+}
+
+fn resolve_controller_queue_item_from_snapshots(
+    queue: &QConnectQueueState,
+    renderer: &QConnectRendererState,
+    direction: QconnectRemoteSkipDirection,
+) -> QconnectControllerQueueItemResolution {
+    let cursors = ordered_queue_cursors(queue);
+    if cursors.is_empty() {
+        return QconnectControllerQueueItemResolution {
+            target_queue_item_id: None,
+            strategy: "no_queue_items",
+            queue_index: None,
+            matched_track_id: None,
+            matched_queue_item_id: None,
+        };
+    }
+
+    let (current_index, current_strategy) =
+        resolve_current_cursor_index_from_snapshots(queue, renderer, &cursors);
+    let restart_current = matches!(direction, QconnectRemoteSkipDirection::Previous)
+        && renderer.current_position_ms.unwrap_or(0) > 3_000;
+
+    let (target_index, strategy) = match direction {
+        QconnectRemoteSkipDirection::Next => {
+            let next_index = find_cursor_index_by_queue_item_id(
+                &cursors,
+                queue,
+                renderer.next_track.as_ref().map(|item| item.queue_item_id),
+            );
+            if let Some(next_index) = next_index {
+                (Some(next_index), "renderer_next_queue_item_id_verified")
+            } else if let Some(current_index) = current_index {
+                if current_index + 1 < cursors.len() {
+                    (Some(current_index + 1), "queue_item_after_current")
+                } else {
+                    (None, "no_next_queue_item")
+                }
+            } else {
+                (None, "no_next_queue_item")
+            }
+        }
+        QconnectRemoteSkipDirection::Previous => {
+            if restart_current {
+                (current_index, current_strategy)
+            } else if let Some(current_index) = current_index {
+                if current_index > 0 {
+                    (Some(current_index - 1), "queue_item_before_current")
+                } else {
+                    (Some(current_index), "restart_current_queue_item")
+                }
+            } else {
+                (None, "no_previous_queue_item")
+            }
+        }
+    };
+
+    let Some(target_index) = target_index else {
+        return QconnectControllerQueueItemResolution {
+            target_queue_item_id: None,
+            strategy,
+            queue_index: None,
+            matched_track_id: None,
+            matched_queue_item_id: None,
+        };
+    };
+
+    let cursor = cursors[target_index];
+    let matched_track_id = queue_item_track_id_for_cursor(queue, cursor);
+    let matched_queue_item_id = normalized_queue_item_id_for_cursor(queue, cursor);
+
+    QconnectControllerQueueItemResolution {
+        target_queue_item_id: matched_queue_item_id,
+        strategy,
+        queue_index: Some(target_index),
+        matched_track_id,
+        matched_queue_item_id,
+    }
 }
 
 impl Default for QconnectServiceState {
@@ -1947,6 +2272,28 @@ pub async fn v2_qconnect_set_player_state(
 }
 
 #[tauri::command]
+pub async fn v2_qconnect_skip_next_if_remote(
+    app_handle: AppHandle,
+    service: State<'_, QconnectServiceState>,
+) -> Result<bool, RuntimeError> {
+    service
+        .skip_remote_renderer_if_active(QconnectRemoteSkipDirection::Next, &app_handle)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
+pub async fn v2_qconnect_skip_previous_if_remote(
+    app_handle: AppHandle,
+    service: State<'_, QconnectServiceState>,
+) -> Result<bool, RuntimeError> {
+    service
+        .skip_remote_renderer_if_active(QconnectRemoteSkipDirection::Previous, &app_handle)
+        .await
+        .map_err(RuntimeError::Internal)
+}
+
+#[tauri::command]
 pub async fn v2_qconnect_set_active_renderer(
     request: QconnectSetActiveRendererRequest,
     service: State<'_, QconnectServiceState>,
@@ -2575,11 +2922,15 @@ mod tests {
         build_qconnect_file_audio_quality_snapshot, classify_qconnect_audio_quality,
         decode_hex_channel, determine_queue_lookup_report_strategy,
         normalize_volume_to_fraction, parse_subscribe_channels,
+        resolve_controller_queue_item_from_snapshots,
         resolve_queue_item_ids_from_queue_state,
         should_skip_renderer_report_due_to_stale_snapshot, QconnectHandoffIntent,
+        QconnectRemoteSkipDirection,
         QconnectOutboundCommandType, QconnectTrackOrigin,
     };
-    use qconnect_app::{resolve_handoff_intent, QConnectQueueState, QueueCommandType};
+    use qconnect_app::{
+        resolve_handoff_intent, QConnectQueueState, QConnectRendererState, QueueCommandType,
+    };
     use serde_json::json;
 
     #[test]
@@ -2817,6 +3168,132 @@ mod tests {
                 nb_channels: 2,
                 audio_quality: AUDIO_QUALITY_HIRES_LEVEL1,
             }),
+        );
+    }
+
+    #[test]
+    fn resolves_remote_next_target_using_renderer_next_queue_item_id() {
+        let queue: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 8, "minor": 2 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 126886853, "queue_item_id": 126886853 },
+                { "track_context_uuid": "ctx", "track_id": 123452387, "queue_item_id": 10 },
+                { "track_context_uuid": "ctx", "track_id": 126886854, "queue_item_id": 1 }
+            ],
+            "shuffle_mode": false,
+            "shuffle_order": null,
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 0
+        }))
+        .expect("queue state");
+        let renderer: QConnectRendererState = serde_json::from_value(json!({
+            "current_track": { "track_context_uuid": "ctx", "track_id": 126886853, "queue_item_id": 126886853 },
+            "next_track": { "track_context_uuid": "ctx", "track_id": 126886854, "queue_item_id": 1 },
+            "current_position_ms": 64_000,
+            "playing_state": 2,
+            "updated_at_ms": 0
+        }))
+        .expect("renderer state");
+
+        assert_eq!(
+            resolve_controller_queue_item_from_snapshots(
+                &queue,
+                &renderer,
+                QconnectRemoteSkipDirection::Next,
+            ),
+            super::QconnectControllerQueueItemResolution {
+                target_queue_item_id: Some(1),
+                strategy: "renderer_next_queue_item_id_verified",
+                queue_index: Some(2),
+                matched_track_id: Some(126886854),
+                matched_queue_item_id: Some(1),
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_remote_previous_to_restart_first_cloud_item_when_mid_track() {
+        let queue: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 8, "minor": 2 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 126886853, "queue_item_id": 126886853 },
+                { "track_context_uuid": "ctx", "track_id": 123452387, "queue_item_id": 10 },
+                { "track_context_uuid": "ctx", "track_id": 126886854, "queue_item_id": 1 }
+            ],
+            "shuffle_mode": false,
+            "shuffle_order": null,
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 0
+        }))
+        .expect("queue state");
+        let renderer: QConnectRendererState = serde_json::from_value(json!({
+            "current_track": { "track_context_uuid": "ctx", "track_id": 126886853, "queue_item_id": 126886853 },
+            "next_track": { "track_context_uuid": "ctx", "track_id": 126886854, "queue_item_id": 1 },
+            "current_position_ms": 64_000,
+            "playing_state": 2,
+            "updated_at_ms": 0
+        }))
+        .expect("renderer state");
+
+        assert_eq!(
+            resolve_controller_queue_item_from_snapshots(
+                &queue,
+                &renderer,
+                QconnectRemoteSkipDirection::Previous,
+            ),
+            super::QconnectControllerQueueItemResolution {
+                target_queue_item_id: Some(0),
+                strategy: "renderer_current_queue_item_id_verified",
+                queue_index: Some(0),
+                matched_track_id: Some(126886853),
+                matched_queue_item_id: Some(0),
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_remote_previous_to_prior_item_when_near_track_start() {
+        let queue: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 8, "minor": 2 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 126886853, "queue_item_id": 126886853 },
+                { "track_context_uuid": "ctx", "track_id": 123452387, "queue_item_id": 10 },
+                { "track_context_uuid": "ctx", "track_id": 126886854, "queue_item_id": 1 }
+            ],
+            "shuffle_mode": false,
+            "shuffle_order": null,
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 0
+        }))
+        .expect("queue state");
+        let renderer: QConnectRendererState = serde_json::from_value(json!({
+            "current_track": { "track_context_uuid": "ctx", "track_id": 123452387, "queue_item_id": 10 },
+            "next_track": { "track_context_uuid": "ctx", "track_id": 126886854, "queue_item_id": 1 },
+            "current_position_ms": 2_000,
+            "playing_state": 2,
+            "updated_at_ms": 0
+        }))
+        .expect("renderer state");
+
+        assert_eq!(
+            resolve_controller_queue_item_from_snapshots(
+                &queue,
+                &renderer,
+                QconnectRemoteSkipDirection::Previous,
+            ),
+            super::QconnectControllerQueueItemResolution {
+                target_queue_item_id: Some(0),
+                strategy: "queue_item_before_current",
+                queue_index: Some(0),
+                matched_track_id: Some(126886853),
+                matched_queue_item_id: Some(0),
+            }
         );
     }
 }
