@@ -310,6 +310,9 @@ where
                 let reducer_outcome = apply_event(&mut state.queue, &queue_event, now_ms());
                 let _metric_name = telemetry::queue_reducer_event_name(reducer_outcome.event_name);
                 should_emit_queue_update = true;
+                if matches!(event.event_type, QueueEventType::SrvrCtrlShuffleModeSet) {
+                    should_trigger_resync = true;
+                }
             }
             snapshot = state.queue.clone();
         }
@@ -1032,6 +1035,40 @@ mod tests {
         assert!(
             sent.len() >= 2,
             "expected original command plus ask-for-state resync"
+        );
+    }
+
+    #[tokio::test]
+    async fn shuffle_mode_set_requests_authoritative_queue_state() {
+        let (app, sink, transport, _events_rx) = build_connected_app().await;
+
+        app.apply_server_event(QueueServerEvent {
+            event_type: QueueEventType::SrvrCtrlShuffleModeSet,
+            action_uuid: Some("6f9f8d84-cd82-486f-a423-cd467117f39d".to_string()),
+            queue_version: Some(QueueVersion::new(1, 2)),
+            payload: json!({
+                "shuffle_mode": true,
+                "shuffle_seed": 123,
+                "shuffle_pivot_queue_item_id": 0,
+                "autoplay_reset": false,
+                "autoplay_loading": false
+            }),
+        })
+        .await
+        .expect("apply shuffle-mode-set event");
+
+        let events = sink.snapshot().await;
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, QconnectAppEvent::QueueUpdated(_))));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, QconnectAppEvent::QueueResyncTriggered)));
+
+        let sent = transport.sent_messages().await;
+        assert!(
+            !sent.is_empty(),
+            "expected ask-for-state resync after shuffle"
         );
     }
 
