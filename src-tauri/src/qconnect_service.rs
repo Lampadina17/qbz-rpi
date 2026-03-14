@@ -621,51 +621,66 @@ fn build_effective_renderer_snapshot(
     session_renderer_state: Option<&QconnectSessionRendererState>,
     session_loop_mode: Option<i32>,
 ) -> QConnectRendererState {
-    let Some(session_renderer_state) = session_renderer_state else {
-        let mut renderer_snapshot = base_renderer_state.clone();
-        if let Some(loop_mode) = session_loop_mode {
-            renderer_snapshot.loop_mode = Some(loop_mode);
-        }
-        return renderer_snapshot;
-    };
-
     let mut renderer_snapshot = base_renderer_state.clone();
 
-    if let Some(active) = session_renderer_state.active {
-        renderer_snapshot.active = Some(active);
-    }
-    if let Some(playing_state) = session_renderer_state.playing_state {
-        renderer_snapshot.playing_state = Some(playing_state);
-    }
-    if let Some(current_position_ms) = session_renderer_state.current_position_ms {
-        renderer_snapshot.current_position_ms = Some(current_position_ms);
-    }
-    if let Some(volume) = session_renderer_state.volume {
-        renderer_snapshot.volume = Some(volume);
-    }
-    if let Some(muted) = session_renderer_state.muted {
-        renderer_snapshot.muted = Some(muted);
-    }
-    if let Some(max_audio_quality) = session_renderer_state.max_audio_quality {
-        renderer_snapshot.max_audio_quality = Some(max_audio_quality);
-    }
-    if let Some(loop_mode) = session_renderer_state.loop_mode.or(session_loop_mode) {
+    if let Some(session_renderer_state) = session_renderer_state {
+        if let Some(active) = session_renderer_state.active {
+            renderer_snapshot.active = Some(active);
+        }
+        if let Some(playing_state) = session_renderer_state.playing_state {
+            renderer_snapshot.playing_state = Some(playing_state);
+        }
+        if let Some(current_position_ms) = session_renderer_state.current_position_ms {
+            renderer_snapshot.current_position_ms = Some(current_position_ms);
+        }
+        if let Some(volume) = session_renderer_state.volume {
+            renderer_snapshot.volume = Some(volume);
+        }
+        if let Some(muted) = session_renderer_state.muted {
+            renderer_snapshot.muted = Some(muted);
+        }
+        if let Some(max_audio_quality) = session_renderer_state.max_audio_quality {
+            renderer_snapshot.max_audio_quality = Some(max_audio_quality);
+        }
+        if let Some(loop_mode) = session_renderer_state.loop_mode.or(session_loop_mode) {
+            renderer_snapshot.loop_mode = Some(loop_mode);
+        }
+        if let Some(shuffle_mode) = session_renderer_state.shuffle_mode {
+            renderer_snapshot.shuffle_mode = Some(shuffle_mode);
+        }
+        if session_renderer_state.updated_at_ms > 0 {
+            renderer_snapshot.updated_at_ms = session_renderer_state.updated_at_ms;
+        }
+
+        if session_renderer_state.current_queue_item_id.is_some() {
+            let session_snapshot = build_session_renderer_snapshot(
+                queue,
+                Some(session_renderer_state),
+                session_loop_mode,
+            );
+            if session_snapshot.current_track.is_some() {
+                renderer_snapshot.current_track = session_snapshot.current_track;
+                renderer_snapshot.next_track = session_snapshot.next_track;
+            }
+        }
+    } else if let Some(loop_mode) = session_loop_mode {
         renderer_snapshot.loop_mode = Some(loop_mode);
     }
-    if let Some(shuffle_mode) = session_renderer_state.shuffle_mode {
-        renderer_snapshot.shuffle_mode = Some(shuffle_mode);
-    }
-    if session_renderer_state.updated_at_ms > 0 {
-        renderer_snapshot.updated_at_ms = session_renderer_state.updated_at_ms;
-    }
 
-    if session_renderer_state.current_queue_item_id.is_some() {
-        let session_snapshot =
-            build_session_renderer_snapshot(queue, Some(session_renderer_state), session_loop_mode);
-        if session_snapshot.current_track.is_some() {
-            renderer_snapshot.current_track = session_snapshot.current_track;
-            renderer_snapshot.next_track = session_snapshot.next_track;
+    // Treat the remote queue order as authoritative for current/next projection.
+    // Renderer snapshots can keep a stale next_track after shuffle/reorder events
+    // until the peer sends another explicit renderer update.
+    let cursors = ordered_queue_cursors(queue);
+    let (current_index, _) =
+        resolve_current_cursor_index_from_snapshots(queue, &renderer_snapshot, &cursors);
+    if let Some(current_index) = current_index {
+        if let Some(current_track) = queue_item_snapshot_for_cursor(queue, cursors[current_index]) {
+            renderer_snapshot.current_track = Some(current_track);
         }
+        renderer_snapshot.next_track = cursors
+            .get(current_index + 1)
+            .copied()
+            .and_then(|cursor| queue_item_snapshot_for_cursor(queue, cursor));
     }
 
     renderer_snapshot
@@ -2150,20 +2165,58 @@ struct QconnectControllerQueueItemResolution {
     matched_queue_item_id: Option<u64>,
 }
 
+fn is_valid_ordered_queue_shuffle_order(order: &[usize], track_count: usize) -> bool {
+    if order.len() != track_count {
+        return false;
+    }
+    let mut seen = vec![false; track_count];
+    for &index in order {
+        if index >= track_count || seen[index] {
+            return false;
+        }
+        seen[index] = true;
+    }
+    true
+}
+
 fn ordered_queue_cursors(queue: &QConnectQueueState) -> Vec<QconnectOrderedQueueCursor> {
-    queue
-        .queue_items
-        .iter()
-        .enumerate()
-        .map(|(index, _)| QconnectOrderedQueueCursor::Queue(index))
-        .chain(
-            queue
-                .autoplay_items
-                .iter()
-                .enumerate()
-                .map(|(index, _)| QconnectOrderedQueueCursor::Autoplay(index)),
-        )
-        .collect()
+    let mut cursors = if queue.shuffle_mode {
+        queue
+            .shuffle_order
+            .as_ref()
+            .filter(|order| is_valid_ordered_queue_shuffle_order(order, queue.queue_items.len()))
+            .map(|order| {
+                order
+                    .iter()
+                    .copied()
+                    .map(QconnectOrderedQueueCursor::Queue)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| {
+                queue
+                    .queue_items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| QconnectOrderedQueueCursor::Queue(index))
+                    .collect::<Vec<_>>()
+            })
+    } else {
+        queue
+            .queue_items
+            .iter()
+            .enumerate()
+            .map(|(index, _)| QconnectOrderedQueueCursor::Queue(index))
+            .collect::<Vec<_>>()
+    };
+
+    cursors.extend(
+        queue
+            .autoplay_items
+            .iter()
+            .enumerate()
+            .map(|(index, _)| QconnectOrderedQueueCursor::Autoplay(index)),
+    );
+    cursors
 }
 
 fn queue_item_track_id_for_cursor(
@@ -4698,6 +4751,65 @@ mod tests {
                 .as_ref()
                 .map(|item| (item.track_id, item.queue_item_id)),
             Some((25584411, 3)),
+        );
+    }
+
+    #[test]
+    fn effective_renderer_snapshot_reprojects_stale_next_track_after_shuffle_queue_update() {
+        let queue: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 22, "minor": 4 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 43013244, "queue_item_id": 0 },
+                { "track_context_uuid": "ctx", "track_id": 43013245, "queue_item_id": 1 },
+                { "track_context_uuid": "ctx", "track_id": 43013246, "queue_item_id": 2 },
+                { "track_context_uuid": "ctx", "track_id": 43013247, "queue_item_id": 3 },
+                { "track_context_uuid": "ctx", "track_id": 43013248, "queue_item_id": 4 },
+                { "track_context_uuid": "ctx", "track_id": 43013249, "queue_item_id": 5 },
+                { "track_context_uuid": "ctx", "track_id": 43013250, "queue_item_id": 6 },
+                { "track_context_uuid": "ctx", "track_id": 43013251, "queue_item_id": 7 },
+                { "track_context_uuid": "ctx", "track_id": 43013252, "queue_item_id": 8 }
+            ],
+            "shuffle_mode": true,
+            "shuffle_order": [0, 3, 6, 4, 5, 1, 7, 8, 2],
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 0
+        }))
+        .expect("queue state");
+        let base_renderer = QConnectRendererState {
+            active: Some(true),
+            playing_state: Some(super::PLAYING_STATE_PLAYING),
+            current_position_ms: Some(41_000),
+            current_track: Some(QueueItem {
+                track_context_uuid: "ctx".to_string(),
+                track_id: 43013244,
+                queue_item_id: 0,
+            }),
+            next_track: Some(QueueItem {
+                track_context_uuid: "ctx".to_string(),
+                track_id: 43013251,
+                queue_item_id: 7,
+            }),
+            updated_at_ms: 123,
+            ..Default::default()
+        };
+
+        let snapshot = super::build_effective_renderer_snapshot(&queue, &base_renderer, None, None);
+
+        assert_eq!(
+            snapshot
+                .current_track
+                .as_ref()
+                .map(|item| (item.track_id, item.queue_item_id)),
+            Some((43013244, 0)),
+        );
+        assert_eq!(
+            snapshot
+                .next_track
+                .as_ref()
+                .map(|item| (item.track_id, item.queue_item_id)),
+            Some((43013247, 3)),
         );
     }
 
