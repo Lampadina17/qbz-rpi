@@ -313,7 +313,7 @@ struct QconnectRemoteSyncState {
     last_renderer_next_track_id: Option<u64>,
     last_renderer_playing_state: Option<i32>,
     last_reported_file_audio_quality: Option<QconnectFileAudioQualitySnapshot>,
-    last_applied_queue_version: Option<(u64, u64)>,
+    last_applied_queue_state: Option<QConnectQueueState>,
     last_remote_queue_state: Option<QConnectQueueState>,
     /// Session topology — stored from session management events (types 81-87).
     session: QconnectSessionState,
@@ -372,6 +372,23 @@ fn emit_qconnect_diagnostic(app_handle: &AppHandle, channel: &str, level: &str, 
     ) {
         log::warn!("[QConnect] Failed to emit diagnostic {channel}: {err}");
     }
+}
+
+fn queue_state_needs_materialization(
+    previous: Option<&QConnectQueueState>,
+    next: &QConnectQueueState,
+) -> bool {
+    let Some(previous) = previous else {
+        return true;
+    };
+
+    previous.version != next.version
+        || previous.queue_items != next.queue_items
+        || previous.shuffle_mode != next.shuffle_mode
+        || previous.shuffle_order != next.shuffle_order
+        || previous.autoplay_mode != next.autoplay_mode
+        || previous.autoplay_loading != next.autoplay_loading
+        || previous.autoplay_items != next.autoplay_items
 }
 
 fn qconnect_now_ms() -> u64 {
@@ -2414,8 +2431,8 @@ async fn materialize_remote_queue_to_corebridge(
         should_skip,
     ) = {
         let mut state = sync_state.lock().await;
-        let queue_version = (queue_state.version.major, queue_state.version.minor);
-        if state.last_applied_queue_version == Some(queue_version) {
+        if !queue_state_needs_materialization(state.last_applied_queue_state.as_ref(), queue_state)
+        {
             (
                 state.last_renderer_queue_item_id,
                 state.last_renderer_track_id,
@@ -2425,7 +2442,7 @@ async fn materialize_remote_queue_to_corebridge(
                 true,
             )
         } else {
-            state.last_applied_queue_version = Some(queue_version);
+            state.last_applied_queue_state = Some(queue_state.clone());
             (
                 state.last_renderer_queue_item_id,
                 state.last_renderer_track_id,
@@ -2439,7 +2456,7 @@ async fn materialize_remote_queue_to_corebridge(
 
     if should_skip {
         log::debug!(
-            "[QConnect] materialize_remote_queue: skipped (same version {}.{})",
+            "[QConnect] materialize_remote_queue: skipped (identical snapshot {}.{})",
             queue_state.version.major,
             queue_state.version.minor
         );
@@ -4626,6 +4643,86 @@ mod tests {
                 audio_quality: AUDIO_QUALITY_HIRES_LEVEL1,
             }),
         );
+    }
+
+    #[test]
+    fn materialization_reapplies_same_version_when_shuffle_order_changes() {
+        let previous: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 28, "minor": 2 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 1, "queue_item_id": 0 },
+                { "track_context_uuid": "ctx", "track_id": 2, "queue_item_id": 1 },
+                { "track_context_uuid": "ctx", "track_id": 3, "queue_item_id": 2 }
+            ],
+            "shuffle_mode": true,
+            "shuffle_order": null,
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 10
+        }))
+        .expect("previous queue state");
+
+        let next: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 28, "minor": 2 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 1, "queue_item_id": 0 },
+                { "track_context_uuid": "ctx", "track_id": 2, "queue_item_id": 1 },
+                { "track_context_uuid": "ctx", "track_id": 3, "queue_item_id": 2 }
+            ],
+            "shuffle_mode": true,
+            "shuffle_order": [0, 2, 1],
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 20
+        }))
+        .expect("next queue state");
+
+        assert!(super::queue_state_needs_materialization(
+            Some(&previous),
+            &next
+        ));
+    }
+
+    #[test]
+    fn materialization_skips_identical_snapshot_even_if_timestamp_changes() {
+        let previous: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 28, "minor": 2 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 1, "queue_item_id": 0 },
+                { "track_context_uuid": "ctx", "track_id": 2, "queue_item_id": 1 },
+                { "track_context_uuid": "ctx", "track_id": 3, "queue_item_id": 2 }
+            ],
+            "shuffle_mode": true,
+            "shuffle_order": [0, 2, 1],
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 10
+        }))
+        .expect("previous queue state");
+
+        let next: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 28, "minor": 2 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 1, "queue_item_id": 0 },
+                { "track_context_uuid": "ctx", "track_id": 2, "queue_item_id": 1 },
+                { "track_context_uuid": "ctx", "track_id": 3, "queue_item_id": 2 }
+            ],
+            "shuffle_mode": true,
+            "shuffle_order": [0, 2, 1],
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 20
+        }))
+        .expect("next queue state");
+
+        assert!(!super::queue_state_needs_materialization(
+            Some(&previous),
+            &next
+        ));
     }
 
     #[test]
