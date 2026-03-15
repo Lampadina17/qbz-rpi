@@ -1706,7 +1706,7 @@ pub fn run() {
             commands_v2::v2_get_system_color_scheme,
             commands_v2::v2_extract_palette,
             commands_v2::v2_fetch_url_bytes,
-            // PDF booklet viewer (MuPDF backend)
+            // PDF booklet viewer (MuPDF backend when "booklet" feature is enabled, stubs otherwise)
             pdf_viewer::v2_booklet_open,
             pdf_viewer::v2_booklet_render_page,
             pdf_viewer::v2_booklet_save,
