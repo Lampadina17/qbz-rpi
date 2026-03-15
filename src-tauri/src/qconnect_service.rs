@@ -75,6 +75,12 @@ pub struct QconnectConnectionStatus {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct QconnectVisibleQueueProjection {
+    pub current_track: Option<QueueItem>,
+    pub upcoming_tracks: Vec<QueueItem>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QconnectOutboundCommandType {
@@ -672,6 +678,68 @@ fn build_effective_renderer_snapshot(
     }
 
     renderer_snapshot
+}
+
+fn build_visible_queue_projection(
+    queue: &QConnectQueueState,
+    renderer: &QConnectRendererState,
+) -> QconnectVisibleQueueProjection {
+    let cursors = ordered_queue_cursors(queue);
+
+    let current_index = find_cursor_index_by_queue_item_id(
+        &cursors,
+        queue,
+        renderer
+            .current_track
+            .as_ref()
+            .map(|item| item.queue_item_id),
+    )
+    .or_else(|| {
+        find_cursor_index_by_track_id(
+            &cursors,
+            queue,
+            renderer.current_track.as_ref().map(|item| item.track_id),
+        )
+    });
+
+    let next_index = find_cursor_index_by_queue_item_id(
+        &cursors,
+        queue,
+        renderer.next_track.as_ref().map(|item| item.queue_item_id),
+    )
+    .or_else(|| {
+        find_cursor_index_by_track_id(
+            &cursors,
+            queue,
+            renderer.next_track.as_ref().map(|item| item.track_id),
+        )
+    });
+
+    let (current_track, start_index) = if let Some(index) = current_index {
+        (
+            queue_item_snapshot_for_cursor(queue, cursors[index]),
+            index.saturating_add(1),
+        )
+    } else if let Some(index) = next_index {
+        let inferred_current = index
+            .checked_sub(1)
+            .and_then(|current_index| cursors.get(current_index).copied())
+            .and_then(|cursor| queue_item_snapshot_for_cursor(queue, cursor));
+        (inferred_current, index)
+    } else {
+        (None, 0)
+    };
+
+    let upcoming_tracks = cursors
+        .into_iter()
+        .skip(start_index)
+        .filter_map(|cursor| queue_item_snapshot_for_cursor(queue, cursor))
+        .collect();
+
+    QconnectVisibleQueueProjection {
+        current_track,
+        upcoming_tracks,
+    }
 }
 
 fn cache_renderer_snapshot(
@@ -1421,6 +1489,17 @@ impl QconnectServiceState {
         };
 
         Ok(app.renderer_state_snapshot().await)
+    }
+
+    pub async fn visible_queue_projection(&self) -> Result<QconnectVisibleQueueProjection, String> {
+        if let Some((renderer, queue, _session)) = self.effective_active_renderer_snapshot().await?
+        {
+            return Ok(build_visible_queue_projection(&queue, &renderer));
+        }
+
+        let queue = self.queue_snapshot().await?;
+        let renderer = self.renderer_snapshot().await?;
+        Ok(build_visible_queue_projection(&queue, &renderer))
     }
 
     pub async fn session_snapshot(&self) -> Result<QconnectSessionState, String> {
@@ -5044,6 +5123,105 @@ mod tests {
                 .as_ref()
                 .map(|item| (item.track_id, item.queue_item_id)),
             Some((43013251, 7)),
+        );
+    }
+
+    #[test]
+    fn visible_queue_projection_respects_remote_shuffle_order() {
+        let queue: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 40, "minor": 1 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 101, "queue_item_id": 0 },
+                { "track_context_uuid": "ctx", "track_id": 102, "queue_item_id": 1 },
+                { "track_context_uuid": "ctx", "track_id": 103, "queue_item_id": 2 },
+                { "track_context_uuid": "ctx", "track_id": 104, "queue_item_id": 3 },
+                { "track_context_uuid": "ctx", "track_id": 105, "queue_item_id": 4 }
+            ],
+            "shuffle_mode": true,
+            "shuffle_order": [0, 3, 1, 4, 2],
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 0
+        }))
+        .expect("queue state");
+        let renderer = QConnectRendererState {
+            current_track: Some(QueueItem {
+                track_context_uuid: "ctx".to_string(),
+                track_id: 101,
+                queue_item_id: 0,
+            }),
+            next_track: Some(QueueItem {
+                track_context_uuid: "ctx".to_string(),
+                track_id: 104,
+                queue_item_id: 3,
+            }),
+            ..Default::default()
+        };
+
+        let projection = super::build_visible_queue_projection(&queue, &renderer);
+
+        assert_eq!(
+            projection
+                .current_track
+                .as_ref()
+                .map(|item| (item.track_id, item.queue_item_id)),
+            Some((101, 0)),
+        );
+        assert_eq!(
+            projection
+                .upcoming_tracks
+                .iter()
+                .map(|item| item.queue_item_id)
+                .collect::<Vec<u64>>(),
+            vec![3, 1, 4, 2],
+        );
+    }
+
+    #[test]
+    fn visible_queue_projection_can_infer_current_from_next_anchor() {
+        let queue: QConnectQueueState = serde_json::from_value(json!({
+            "version": { "major": 41, "minor": 1 },
+            "queue_items": [
+                { "track_context_uuid": "ctx", "track_id": 201, "queue_item_id": 0 },
+                { "track_context_uuid": "ctx", "track_id": 202, "queue_item_id": 1 },
+                { "track_context_uuid": "ctx", "track_id": 203, "queue_item_id": 2 },
+                { "track_context_uuid": "ctx", "track_id": 204, "queue_item_id": 3 }
+            ],
+            "shuffle_mode": true,
+            "shuffle_order": [0, 3, 1, 2],
+            "autoplay_mode": false,
+            "autoplay_loading": false,
+            "autoplay_items": [],
+            "updated_at_ms": 0
+        }))
+        .expect("queue state");
+        let renderer = QConnectRendererState {
+            current_track: None,
+            next_track: Some(QueueItem {
+                track_context_uuid: "ctx".to_string(),
+                track_id: 204,
+                queue_item_id: 3,
+            }),
+            ..Default::default()
+        };
+
+        let projection = super::build_visible_queue_projection(&queue, &renderer);
+
+        assert_eq!(
+            projection
+                .current_track
+                .as_ref()
+                .map(|item| (item.track_id, item.queue_item_id)),
+            Some((201, 0)),
+        );
+        assert_eq!(
+            projection
+                .upcoming_tracks
+                .iter()
+                .map(|item| item.queue_item_id)
+                .collect::<Vec<u64>>(),
+            vec![3, 1, 2],
         );
     }
 

@@ -57,7 +57,7 @@ use crate::offline::OfflineState;
 use crate::offline_cache::OfflineCacheState;
 use crate::playback_context::{ContentSource, ContextType, PlaybackContext};
 use crate::plex::{PlexMusicSection, PlexPlayResult, PlexServerInfo, PlexTrack};
-use crate::qconnect_service::QconnectServiceState;
+use crate::qconnect_service::{QconnectServiceState, QconnectVisibleQueueProjection};
 use crate::reco_store::{HomeResolved, HomeSeeds, RecoEventInput, RecoState};
 use crate::runtime::{
     CommandRequirement, DegradedReason, RuntimeError, RuntimeEvent, RuntimeManagerState,
@@ -6133,6 +6133,7 @@ pub async fn v2_clear_queue(
             .send_command(QueueCommandType::CtrlSrvrClearQueue, serde_json::json!({}))
             .await
             .map_err(RuntimeError::Internal)?;
+        return Ok(());
     }
 
     let bridge = bridge.get().await;
@@ -6165,6 +6166,69 @@ async fn apply_qconnect_shuffle_mode(
         .await
         .map_err(RuntimeError::Internal)?;
     Ok(())
+}
+
+fn qconnect_queue_item_id_to_wire_value(queue_item_id: u64) -> Result<i64, RuntimeError> {
+    i64::try_from(queue_item_id)
+        .map_err(|_| RuntimeError::Internal("queue_item_id out of range".to_string()))
+}
+
+fn build_qconnect_remove_upcoming_payload(
+    projection: &QconnectVisibleQueueProjection,
+    upcoming_index: usize,
+) -> Result<Option<serde_json::Value>, RuntimeError> {
+    let Some(queue_item) = projection.upcoming_tracks.get(upcoming_index) else {
+        return Ok(None);
+    };
+
+    Ok(Some(serde_json::json!({
+        "queue_item_ids": [qconnect_queue_item_id_to_wire_value(queue_item.queue_item_id)?],
+        "autoplay_reset": false,
+        "autoplay_loading": false,
+    })))
+}
+
+fn build_qconnect_reorder_payload(
+    projection: &QconnectVisibleQueueProjection,
+    from_index: usize,
+    to_index: usize,
+) -> Result<Option<serde_json::Value>, RuntimeError> {
+    let upcoming_len = projection.upcoming_tracks.len();
+    if from_index >= upcoming_len || to_index >= upcoming_len {
+        return Ok(None);
+    }
+    if from_index == to_index {
+        return Ok(Some(serde_json::json!({})));
+    }
+
+    let mut remaining_queue_item_ids: Vec<u64> = projection
+        .upcoming_tracks
+        .iter()
+        .map(|item| item.queue_item_id)
+        .collect();
+    let moved_queue_item_id = remaining_queue_item_ids.remove(from_index);
+    let insert_position = if from_index < to_index {
+        to_index.saturating_sub(1)
+    } else {
+        to_index
+    };
+    let insert_after = if insert_position == 0 {
+        projection
+            .current_track
+            .as_ref()
+            .map(|item| item.queue_item_id)
+    } else {
+        remaining_queue_item_ids.get(insert_position - 1).copied()
+    };
+
+    Ok(Some(serde_json::json!({
+        "queue_item_ids": [qconnect_queue_item_id_to_wire_value(moved_queue_item_id)?],
+        "insert_after": insert_after
+            .map(qconnect_queue_item_id_to_wire_value)
+            .transpose()?,
+        "autoplay_reset": false,
+        "autoplay_loading": false,
+    })))
 }
 
 fn qconnect_loop_mode_from_repeat_mode(mode: RepeatMode) -> i32 {
@@ -6208,10 +6272,15 @@ fn resolve_qconnect_shuffle_pivot(
 
 #[cfg(test)]
 mod tests {
-    use super::{qconnect_loop_mode_from_repeat_mode, resolve_qconnect_shuffle_pivot};
+    use super::{
+        build_qconnect_remove_upcoming_payload, build_qconnect_reorder_payload,
+        qconnect_loop_mode_from_repeat_mode, resolve_qconnect_shuffle_pivot,
+    };
+    use crate::qconnect_service::QconnectVisibleQueueProjection;
     use qbz_models::RepeatMode;
     use qconnect_app::{QConnectQueueState, QConnectRendererState};
     use qconnect_core::QueueItem;
+    use serde_json::json;
 
     fn item(queue_item_id: u64, track_id: u64) -> QueueItem {
         QueueItem {
@@ -6256,6 +6325,66 @@ mod tests {
 
         let queue_item_id = resolve_qconnect_shuffle_pivot(&queue, &renderer);
         assert_eq!(queue_item_id, Some(22));
+    }
+
+    #[test]
+    fn remove_upcoming_payload_uses_queue_item_id_from_projection() {
+        let projection = QconnectVisibleQueueProjection {
+            current_track: Some(item(0, 100)),
+            upcoming_tracks: vec![item(7, 107), item(8, 108)],
+        };
+
+        let payload =
+            build_qconnect_remove_upcoming_payload(&projection, 1).expect("payload build");
+
+        assert_eq!(
+            payload,
+            Some(json!({
+                "queue_item_ids": [8],
+                "autoplay_reset": false,
+                "autoplay_loading": false,
+            })),
+        );
+    }
+
+    #[test]
+    fn reorder_payload_moves_track_before_drop_target_using_current_anchor() {
+        let projection = QconnectVisibleQueueProjection {
+            current_track: Some(item(0, 100)),
+            upcoming_tracks: vec![item(1, 101), item(2, 102), item(3, 103), item(4, 104)],
+        };
+
+        let payload = build_qconnect_reorder_payload(&projection, 0, 3).expect("payload build");
+
+        assert_eq!(
+            payload,
+            Some(json!({
+                "queue_item_ids": [1],
+                "insert_after": 3,
+                "autoplay_reset": false,
+                "autoplay_loading": false,
+            })),
+        );
+    }
+
+    #[test]
+    fn reorder_payload_can_move_track_to_first_upcoming_slot() {
+        let projection = QconnectVisibleQueueProjection {
+            current_track: Some(item(0, 100)),
+            upcoming_tracks: vec![item(1, 101), item(2, 102), item(3, 103), item(4, 104)],
+        };
+
+        let payload = build_qconnect_reorder_payload(&projection, 3, 0).expect("payload build");
+
+        assert_eq!(
+            payload,
+            Some(json!({
+                "queue_item_ids": [4],
+                "insert_after": 0,
+                "autoplay_reset": false,
+                "autoplay_loading": false,
+            })),
+        );
     }
 }
 
@@ -6499,6 +6628,7 @@ pub async fn v2_remove_from_queue(
 pub async fn v2_remove_upcoming_track(
     upcoming_index: usize,
     bridge: State<'_, CoreBridgeState>,
+    qconnect: State<'_, QconnectServiceState>,
     runtime: State<'_, RuntimeManagerState>,
 ) -> Result<Option<V2QueueTrack>, RuntimeError> {
     runtime
@@ -6509,6 +6639,24 @@ pub async fn v2_remove_upcoming_track(
         "[V2] remove_upcoming_track: upcoming_index {}",
         upcoming_index
     );
+
+    if qconnect.status().await.transport_connected {
+        let projection = qconnect
+            .visible_queue_projection()
+            .await
+            .map_err(RuntimeError::Internal)?;
+        let Some(payload) = build_qconnect_remove_upcoming_payload(&projection, upcoming_index)?
+        else {
+            return Ok(None);
+        };
+
+        qconnect
+            .send_command(QueueCommandType::CtrlSrvrQueueRemoveTracks, payload)
+            .await
+            .map_err(RuntimeError::Internal)?;
+        return Ok(None);
+    }
+
     let bridge = bridge.get().await;
     Ok(bridge
         .remove_upcoming_track(upcoming_index)
@@ -6589,6 +6737,7 @@ pub async fn v2_move_queue_track(
     from_index: usize,
     to_index: usize,
     bridge: State<'_, CoreBridgeState>,
+    qconnect: State<'_, QconnectServiceState>,
     runtime: State<'_, RuntimeManagerState>,
 ) -> Result<bool, RuntimeError> {
     runtime
@@ -6596,6 +6745,27 @@ pub async fn v2_move_queue_track(
         .check_requirements(CommandRequirement::RequiresUserSession)
         .await?;
     log::info!("[V2] move_queue_track: {} -> {}", from_index, to_index);
+
+    if qconnect.status().await.transport_connected {
+        let projection = qconnect
+            .visible_queue_projection()
+            .await
+            .map_err(RuntimeError::Internal)?;
+        let Some(payload) = build_qconnect_reorder_payload(&projection, from_index, to_index)?
+        else {
+            return Ok(false);
+        };
+        if from_index == to_index {
+            return Ok(true);
+        }
+
+        qconnect
+            .send_command(QueueCommandType::CtrlSrvrQueueReorderTracks, payload)
+            .await
+            .map_err(RuntimeError::Internal)?;
+        return Ok(true);
+    }
+
     let bridge = bridge.get().await;
     Ok(bridge.move_track(from_index, to_index).await)
 }

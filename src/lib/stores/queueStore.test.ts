@@ -21,6 +21,7 @@ import {
   stopQueueEventListener,
   toggleShuffle,
   toggleRepeat,
+  clearQueue,
   type BackendQueueTrack
 } from './queueStore';
 
@@ -354,6 +355,32 @@ describe('queueStore', () => {
       expect(getRepeatMode()).toBe('one');
       expect(mockedInvoke).toHaveBeenNthCalledWith(1, 'v2_get_queue_state');
       expect(mockedInvoke).toHaveBeenNthCalledWith(2, 'v2_set_repeat_mode', { mode: 'Off' });
+    });
+  });
+
+  describe('clearQueue', () => {
+    it('should request clear without mutating local queue optimistically', async () => {
+      mockedInvoke.mockResolvedValueOnce({
+        current_track: null,
+        current_index: null,
+        upcoming: [
+          { id: 1, title: 'Song 1', artist: 'Artist', album: 'Album', duration_secs: 180, artwork_url: null }
+        ],
+        history: [],
+        shuffle: false,
+        repeat: 'Off',
+        total_tracks: 1
+      });
+      await syncQueueState();
+
+      mockedInvoke.mockResolvedValueOnce(undefined);
+
+      const success = await clearQueue();
+
+      expect(success).toBe(true);
+      expect(mockedInvoke).toHaveBeenLastCalledWith('v2_clear_queue');
+      expect(getQueue().map(track => track.id)).toEqual(['1']);
+      expect(getQueueTotalTracks()).toBe(1);
     });
   });
 

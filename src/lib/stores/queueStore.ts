@@ -391,9 +391,6 @@ export async function setQueue(tracks: BackendQueueTrack[], startIndex: number, 
 export async function clearQueue(): Promise<boolean> {
   try {
     await invoke('v2_clear_queue');
-    queue = [];
-    queueTotalTracks = 0;
-    notifyListeners();
     return true;
   } catch (err) {
     console.error('Failed to clear queue:', err);
