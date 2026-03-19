@@ -5549,6 +5549,9 @@
           }
         }}
         explicit={currentTrack?.parental_warning === true}
+        qconnectSessionSnapshot={qobuzConnectSessionSnapshot}
+        onToggleQconnectConnection={handleQobuzConnectButton}
+        qconnectBusy={qobuzConnectBusy}
       />
     {:else}
       <NowPlayingBar
@@ -5566,6 +5569,9 @@
         {volume}
         onVolumeChange={handleVolumeChange}
         controlsDisabled={queue.length === 0}
+        qconnectSessionSnapshot={qobuzConnectSessionSnapshot}
+        onToggleQconnectConnection={handleQobuzConnectButton}
+        qconnectBusy={qobuzConnectBusy}
       />
     {/if}
 

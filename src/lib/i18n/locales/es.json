@@ -2094,7 +2094,9 @@
     "muteLabel": "Silenciar",
     "unmuteLabel": "Activar sonido",
     "setActiveRenderer": "Establecer como activo",
-    "thisDevice": "Este dispositivo"
+    "thisDevice": "Este dispositivo",
+    "experimentalWarning": "Qobuz Connect es experimental. Es muy probable que haya bugs, si los encuentras repórtalos en la sección correspondiente.",
+    "localLibraryWarning": "Mientras Qobuz Connect está activo, la biblioteca local no es compatible debido a la incompatibilidad de Qobuz Connect con contenido ajeno a Qobuz."
   },
   "radio": {
     "albumRadio": "Radio del Album",

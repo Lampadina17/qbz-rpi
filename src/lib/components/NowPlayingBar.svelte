@@ -20,6 +20,7 @@
   } from 'lucide-svelte';
   import QualityBadge from './QualityBadge.svelte';
   import AudioOutputBadges from './AudioOutputBadges.svelte';
+  import QconnectBadge from './QconnectBadge.svelte';
   import StackIcon from './StackIcon.svelte';
   import { cachedSrc } from '$lib/actions/cachedImage';
   import { t as translateStore } from '$lib/i18n';
@@ -30,6 +31,7 @@
     type OfflineReason
   } from '$lib/stores/offlineStore';
   import { toggleMute } from '$lib/stores/playerStore';
+  import type { QconnectSessionSnapshot } from '$lib/services/qconnectRuntime';
 
   interface Props {
     artwork?: string;
@@ -78,6 +80,9 @@
     onToggleNormalization?: () => void;
     controlsDisabled?: boolean;
     explicit?: boolean;
+    qconnectSessionSnapshot?: QconnectSessionSnapshot | null;
+    onToggleQconnectConnection?: () => void | Promise<void>;
+    qconnectBusy?: boolean;
   }
 
   let {
@@ -127,6 +132,9 @@
     onToggleNormalization,
     controlsDisabled = false,
     explicit = false,
+    qconnectSessionSnapshot = null,
+    onToggleQconnectConnection,
+    qconnectBusy = false,
   }: Props = $props();
 
   let progressRef: HTMLDivElement;
@@ -383,11 +391,19 @@
             </div>
           </div>
 
-          <div class="quality-indicator">
-            <QualityBadge {quality} {bitDepth} {samplingRate} {originalBitDepth} {originalSamplingRate} {format} />
-            <div class="audio-badges-row">
-              <AudioOutputBadges {samplingRate} />
+          <div class="badges-group">
+            <div class="quality-indicator">
+              <QualityBadge {quality} {bitDepth} {samplingRate} {originalBitDepth} {originalSamplingRate} {format} />
+              <div class="audio-badges-row">
+                <AudioOutputBadges {samplingRate} />
+              </div>
             </div>
+            <QconnectBadge
+              connected={isQobuzConnectConnected}
+              sessionSnapshot={qconnectSessionSnapshot}
+              onToggleConnection={onToggleQconnectConnection ?? (() => {})}
+              busy={qconnectBusy}
+            />
           </div>
         </div>
       {:else}
@@ -972,6 +988,13 @@
     gap: 2px;
     align-self: stretch;
     margin: 0;
+  }
+
+  .badges-group {
+    display: flex;
+    align-items: stretch;
+    gap: 3px;
+    flex-shrink: 0;
   }
 
   .audio-badges-row {
