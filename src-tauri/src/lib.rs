@@ -807,6 +807,7 @@ pub fn run() {
                 "Main window transparency: {} (override with QBZ_FORCE_TRANSPARENT_WINDOWS=1 or QBZ_FORCE_OPAQUE_WINDOWS=1)",
                 main_window_transparent
             );
+            #[allow(unused_mut)]
             let mut builder = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
