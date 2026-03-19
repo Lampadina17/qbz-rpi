@@ -508,6 +508,7 @@
     "unmute": "Réactiver le son",
     "volumeUp": "Augmenter le volume",
     "volumeDown": "Baisser le volume",
+    "volumeLockedHw": "Volume verrouillé à 100% — ALSA Direct hw: (réglez au niveau DAC/matériel)",
     "clearQueue": "Vider la file d'attente",
     "queueEmpty": "La file d'attente est vide",
     "queueEmptyDescription": "Recherchez de la musique ou parcourez votre bibliothèque pour ajouter des pistes.",

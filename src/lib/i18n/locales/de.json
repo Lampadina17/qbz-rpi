@@ -508,6 +508,7 @@
     "unmute": "Stummschaltung aufheben",
     "volumeUp": "Lauter",
     "volumeDown": "Leiser",
+    "volumeLockedHw": "Lautstärke auf 100% fixiert — ALSA Direct hw: (am DAC/Hardware einstellen)",
     "clearQueue": "Warteschlange leeren",
     "queueEmpty": "Warteschlange ist leer",
     "queueEmptyDescription": "Suche nach Musik oder durchsuchen Sie Ihre Bibliothek, um Titel hinzuzufügen.",

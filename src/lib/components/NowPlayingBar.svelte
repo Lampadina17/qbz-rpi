@@ -84,6 +84,7 @@
     onToggleQconnectConnection?: () => void | Promise<void>;
     qconnectBusy?: boolean;
     showQconnectDevButton?: boolean;
+    volumeLocked?: boolean;
   }
 
   let {
@@ -137,6 +138,7 @@
     onToggleQconnectConnection,
     qconnectBusy = false,
     showQconnectDevButton = false,
+    volumeLocked = false,
   }: Props = $props();
 
   let progressRef: HTMLDivElement;
@@ -489,53 +491,78 @@
       </button>
 
       <!-- Volume Control -->
-      <div class="volume-control">
-        <div class="volume-value" class:visible={isDraggingVolume}>{volume}</div>
-        <button
-          class="control-btn volume-btn"
-          onclick={() => toggleMute()}
-          title={volume === 0 ? $translateStore('player.unmute') : $translateStore('player.mute')}
-        >
-          {#if volume === 0}
-            <VolumeX size={16} />
-          {:else if volume < 50}
-            <Volume1 size={16} />
-          {:else}
+      <div class="volume-control" class:volume-locked={volumeLocked}>
+        {#if volumeLocked}
+          <button
+            class="control-btn volume-btn"
+            title={$translateStore('player.volumeLockedHw')}
+            disabled
+          >
             <Volume2 size={16} />
-          {/if}
-        </button>
+          </button>
 
-        <div
-          class="volume-slider"
-          bind:this={volumeRef}
-          onmousedown={handleVolumeMouseDown}
-          role="slider"
-          tabindex="0"
-          aria-valuenow={volume}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div class="volume-track">
-            <div class="volume-fill" style="width: {volume}%"></div>
+          <div
+            class="volume-slider"
+            role="slider"
+            tabindex="-1"
+            aria-valuenow={100}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-disabled="true"
+          >
+            <div class="volume-track">
+              <div class="volume-fill" style="width: 100%"></div>
+            </div>
+            <div class="volume-thumb" style="left: 100%"></div>
           </div>
-          <div class="volume-thumb" style="left: {volume}%"></div>
-        </div>
+        {:else}
+          <div class="volume-value" class:visible={isDraggingVolume}>{volume}</div>
+          <button
+            class="control-btn volume-btn"
+            onclick={() => toggleMute()}
+            title={volume === 0 ? $translateStore('player.unmute') : $translateStore('player.mute')}
+          >
+            {#if volume === 0}
+              <VolumeX size={16} />
+            {:else if volume < 50}
+              <Volume1 size={16} />
+            {:else}
+              <Volume2 size={16} />
+            {/if}
+          </button>
 
-        <button
-          class="control-btn volume-step-btn"
-          onclick={() => onVolumeChange?.(Math.max(0, volume - 5))}
-          title={$translateStore('player.volumeDown')}
-        >
-          <Minus size={14} />
-        </button>
+          <div
+            class="volume-slider"
+            bind:this={volumeRef}
+            onmousedown={handleVolumeMouseDown}
+            role="slider"
+            tabindex="0"
+            aria-valuenow={volume}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div class="volume-track">
+              <div class="volume-fill" style="width: {volume}%"></div>
+            </div>
+            <div class="volume-thumb" style="left: {volume}%"></div>
+          </div>
 
-        <button
-          class="control-btn volume-step-btn"
-          onclick={() => onVolumeChange?.(Math.min(100, volume + 5))}
-          title={$translateStore('player.volumeUp')}
-        >
-          <Plus size={14} />
-        </button>
+          <button
+            class="control-btn volume-step-btn"
+            onclick={() => onVolumeChange?.(Math.max(0, volume - 5))}
+            title={$translateStore('player.volumeDown')}
+          >
+            <Minus size={14} />
+          </button>
+
+          <button
+            class="control-btn volume-step-btn"
+            onclick={() => onVolumeChange?.(Math.min(100, volume + 5))}
+            title={$translateStore('player.volumeUp')}
+          >
+            <Plus size={14} />
+          </button>
+        {/if}
       </div>
 
       <!-- Queue Button (far right) -->
@@ -1089,5 +1116,10 @@
   .volume-value.visible {
     opacity: 1;
     transform: translateY(0);
+  }
+
+  .volume-locked {
+    opacity: 0.5;
+    pointer-events: none;
   }
 </style>

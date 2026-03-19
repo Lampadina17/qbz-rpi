@@ -901,6 +901,7 @@
   let isFavorite = $state(false);
   let normalizationEnabled = $state(false);
   let normalizationGain = $state<number | null>(null);
+  let isAlsaDirectHw = $state(false); // ALSA Direct hw: locks volume to 100%
   // Queue/Shuffle State (from queueStore subscription)
   let isShuffle = $state(false);
   let repeatMode = $state<RepeatMode>('off');
@@ -2197,6 +2198,9 @@
   }
 
   async function handleVolumeChange(newVolume: number) {
+    // ALSA Direct hw: locks volume at 100%
+    if (isAlsaDirectHw) return;
+
     try {
       const handledRemotely = await invoke<boolean>('v2_qconnect_set_volume_if_remote', { volume: newVolume });
       if (handledRemotely) return;
@@ -2212,6 +2216,9 @@
   }
 
   async function handleToggleMute() {
+    // ALSA Direct hw: locks volume at 100%
+    if (isAlsaDirectHw) return;
+
     // Determine current mute state from volume
     const currentlyMuted = volume === 0;
     try {
@@ -3557,9 +3564,15 @@
     initCustomAlbumCoverStore().catch(err => console.debug('[CustomAlbumCovers] Init deferred:', err));
     refreshUpdatePreferences().catch(err => console.debug('[Updates] Prefs refresh deferred:', err));
 
-    // Load audio settings (normalization state) now that session is active
-    invoke<{ normalization_enabled: boolean }>('v2_get_audio_settings').then((settings) => {
+    // Load audio settings (normalization state + backend info) now that session is active
+    invoke<{ normalization_enabled: boolean; backend_type: string | null; alsa_plugin: string | null }>('v2_get_audio_settings').then((settings) => {
       normalizationEnabled = settings.normalization_enabled;
+      const alsaHw = settings.backend_type === 'Alsa' && settings.alsa_plugin === 'Hw';
+      isAlsaDirectHw = alsaHw;
+      if (alsaHw && volume !== 100) {
+        playerSetVolume(100);
+        volume = 100;
+      }
     }).catch((err) => {
       console.error('[AudioSettings] Failed to load:', err);
     });
@@ -4916,6 +4929,14 @@
           subscriptionValidUntil={userInfo?.subscriptionValidUntil}
           showTitleBar={showTitleBar}
           onQconnectDevButtonChange={(v) => { showQconnectDevButton = v; }}
+          onAudioBackendChange={(backendType, alsaPlugin) => {
+            const alsaHw = backendType === 'Alsa' && alsaPlugin === 'Hw';
+            isAlsaDirectHw = alsaHw;
+            if (alsaHw && volume !== 100) {
+              playerSetVolume(100);
+              volume = 100;
+            }
+          }}
         />
       {:else if activeView === 'album' && !selectedAlbum}
         <!-- Defensive fallback: album view active but no data loaded (#43) -->
@@ -5555,6 +5576,7 @@
         onToggleQconnectConnection={handleQobuzConnectButton}
         qconnectBusy={qobuzConnectBusy}
         {showQconnectDevButton}
+        volumeLocked={isAlsaDirectHw}
       />
     {:else}
       <NowPlayingBar
@@ -5576,6 +5598,7 @@
         onToggleQconnectConnection={handleQobuzConnectButton}
         qconnectBusy={qobuzConnectBusy}
         {showQconnectDevButton}
+        volumeLocked={isAlsaDirectHw}
       />
     {/if}
 

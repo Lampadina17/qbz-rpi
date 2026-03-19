@@ -155,6 +155,7 @@
     subscriptionValidUntil?: string | null;
     showTitleBar?: boolean;
     onQconnectDevButtonChange?: (enabled: boolean) => void;
+    onAudioBackendChange?: (backendType: string | null, alsaPlugin: string | null) => void;
   }
 
   interface CacheStats {
@@ -240,6 +241,7 @@
     subscriptionValidUntil = null,
     showTitleBar = true,
     onQconnectDevButtonChange,
+    onAudioBackendChange,
   }: Props = $props();
 
   // Purchases toggle
@@ -2849,6 +2851,9 @@
       // Save backend preference
       await invoke('v2_set_audio_backend_type', { backendType });
       console.log('[Audio] Backend changed:', backendName, '(type:', backendType ?? 'auto', ')');
+      // Notify parent of backend change (for volume lock)
+      const currentPlugin = alsaPlugins.find(p => p.name === selectedAlsaPlugin)?.plugin ?? null;
+      onAudioBackendChange?.(backendType, currentPlugin);
 
       // Load devices for new backend
       if (backendType) {
@@ -2881,6 +2886,8 @@
     try {
       await invoke('v2_set_audio_alsa_plugin', { plugin });
       console.log('[Audio] ALSA plugin changed:', pluginName, '(type:', plugin ?? 'none', ')');
+      // Notify parent of plugin change (for volume lock)
+      onAudioBackendChange?.('Alsa', plugin);
 
       // Reinitialize audio if ALSA backend is active
       if (selectedBackend === 'ALSA Direct') {

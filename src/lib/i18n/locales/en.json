@@ -532,6 +532,7 @@
     "unmute": "Unmute",
     "volumeUp": "Increase volume",
     "volumeDown": "Decrease volume",
+    "volumeLockedHw": "Volume locked at 100% — ALSA Direct hw: (adjust at DAC/hardware level)",
     "clearQueue": "Clear Queue",
     "queueEmpty": "Queue is empty",
     "queueEmptyDescription": "Search for music or browse your library to add tracks.",

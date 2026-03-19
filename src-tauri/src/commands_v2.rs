@@ -7348,18 +7348,41 @@ pub async fn v2_seek(
 }
 
 /// Set volume (0.0 - 1.0) (V2)
+///
+/// When ALSA Direct hw: is active, volume is forced to 1.0 (100%)
+/// because hw: bypasses all software mixing — volume must be
+/// controlled at the DAC/hardware level.
 #[tauri::command]
 pub async fn v2_set_volume(
     volume: f32,
     bridge: State<'_, CoreBridgeState>,
+    audio_state: State<'_, AudioSettingsState>,
     runtime: State<'_, RuntimeManagerState>,
 ) -> Result<(), RuntimeError> {
     runtime
         .manager()
         .check_requirements(CommandRequirement::RequiresClientInit)
         .await?;
+
+    // Force 100% volume when ALSA Direct hw: is active
+    let effective_volume = {
+        let is_alsa_hw = audio_state
+            .store
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().and_then(|s| s.get_settings().ok()))
+            .map(|s| {
+                s.backend_type == Some(AudioBackendType::Alsa)
+                    && s.alsa_plugin == Some(AlsaPlugin::Hw)
+            })
+            .unwrap_or(false);
+        if is_alsa_hw { 1.0 } else { volume }
+    };
+
     let bridge = bridge.get().await;
-    bridge.set_volume(volume).map_err(RuntimeError::Internal)
+    bridge
+        .set_volume(effective_volume)
+        .map_err(RuntimeError::Internal)
 }
 
 /// Get current playback state (V2) - also updates MPRIS progress
