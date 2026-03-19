@@ -167,15 +167,9 @@ pub fn update_media_controls_metadata(
     media_controls.set_metadata(&track_info);
 }
 
-/// Add a KWin window rule that forces server-side decorations (SSD) for QBZ.
-///
-/// GTK3 on Wayland hardcodes CLIENT_SIDE in the xdg-decoration protocol,
-/// so KWin scripting alone can't override it. Window rules operate at a
-/// deeper level (applied during window setup, before protocol negotiation)
-/// and can force KWin to draw native SSD.
-///
-/// The rule is written to ~/.config/kwinrulesrc and persists across sessions.
-/// It's removed when the user disables system title bar.
+/// DEPRECATED: KWin SSD hack removed — caused double titlebar + CPU spike.
+/// Kept temporarily for the cleanup block that removes stale rules.
+#[allow(dead_code)]
 fn setup_kwin_window_rule() -> Result<(), String> {
     let config_path = dirs::config_dir()
         .ok_or_else(|| "Could not determine config directory".to_string())?
@@ -798,36 +792,9 @@ pub fn run() {
         .manage(qconnect_service::QconnectServiceState::new())
         .manage(user_data_paths)
         .setup(move |app| {
-            // On KDE Plasma + Wayland, GTK3 always uses client-side decorations
-            // (CSD) regardless of GTK_CSD env var, because it hardcodes
-            // CLIENT_SIDE in the xdg-decoration protocol. This means
-            // decorations(true) shows a GTK/Breeze-GTK title bar, not the
-            // native KDE Breeze one.
-            //
-            // Workaround: create the window with decorations=false (no GTK CSD),
-            // then load a KWin script via D-Bus that forces KWin to draw its own
-            // server-side decorations (SSD) for QBZ. This gives a single, native
-            // KDE title bar identical to Dolphin/Konsole.
-            let is_kde_wayland = std::env::var("GDK_BACKEND")
-                .map(|v| v == "wayland")
-                .unwrap_or(false)
-                && auto_theme::system::detect_desktop_environment()
-                    == auto_theme::system::DesktopEnvironment::KdePlasma;
-
-            let use_kwin_ssd = use_system_titlebar && is_kde_wayland;
-
-            // On KDE Wayland: always decorations=false, KWin script adds SSD
-            // On other DEs: use decorations directly (GTK CSD is acceptable)
-            let gtk_decorations = if use_kwin_ssd {
-                false
-            } else {
-                use_system_titlebar
-            };
-
             log::info!(
-                "Creating main window (decorations={}, kwin_ssd={})",
-                gtk_decorations,
-                use_kwin_ssd
+                "Creating main window (decorations={})",
+                use_system_titlebar
             );
             let main_window_transparent = should_use_main_window_transparency();
             log::info!(
@@ -842,7 +809,7 @@ pub fn run() {
             .title("QBZ")
             .inner_size(saved_win_width, saved_win_height)
             .min_inner_size(800.0, 600.0)
-            .decorations(gtk_decorations)
+            .decorations(use_system_titlebar)
             .transparent(main_window_transparent)
             .resizable(true)
             .zoom_hotkeys_enabled(true)
@@ -892,15 +859,6 @@ pub fn run() {
                             }
                         }
                         _ => {}
-                    }
-                });
-            }
-
-            // Add KWin window rule to force server-side decorations for QBZ
-            if use_kwin_ssd {
-                std::thread::spawn(|| {
-                    if let Err(e) = setup_kwin_window_rule() {
-                        log::warn!("Failed to set KWin window rule: {}", e);
                     }
                 });
             }
