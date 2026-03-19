@@ -133,7 +133,9 @@ fn main() {
             eprintln!("[QBZ]   - gsk_renderer: auto");
             eprintln!("[QBZ]   - force_dmabuf: false");
             eprintln!("[QBZ] You can now start QBZ normally.");
-            eprintln!("[QBZ] Tip: Run 'qbz --autoconfig-graphics' to auto-detect optimal settings.");
+            eprintln!(
+                "[QBZ] Tip: Run 'qbz --autoconfig-graphics' to auto-detect optimal settings."
+            );
         } else {
             eprintln!("[QBZ] Some settings could not be reset:");
             for e in &errors {
@@ -254,7 +256,10 @@ fn main() {
         // Hardware acceleration: DB value is the default, env var overrides.
         // QBZ_HARDWARE_ACCEL=0 is the nuclear opt-out that disables all GPU
         // compositing and DMA-BUF everywhere.
-        let hw_accel_db = graphics_db.as_ref().map(|s| s.hardware_acceleration).unwrap_or(true);
+        let hw_accel_db = graphics_db
+            .as_ref()
+            .map(|s| s.hardware_acceleration)
+            .unwrap_or(true);
         let hardware_accel = match std::env::var("QBZ_HARDWARE_ACCEL").as_deref() {
             Ok("0") => {
                 qbz_nix_lib::logging::log_startup(
@@ -481,9 +486,7 @@ fn main() {
                     "[QBZ] Wayland+NVIDIA: compositing mode disabled (prevents protocol errors)",
                 );
             } else if is_wayland && !force_x11 {
-                qbz_nix_lib::logging::log_startup(
-                    "[QBZ] Wayland: compositing mode enabled",
-                );
+                qbz_nix_lib::logging::log_startup("[QBZ] Wayland: compositing mode enabled");
             }
 
             // --- DMA-BUF renderer control ---
@@ -534,9 +537,7 @@ fn main() {
     }
 
     // Catch GTK initialization panics and show a recovery message
-    let result = std::panic::catch_unwind(|| {
-        qbz_nix_lib::run()
-    });
+    let result = std::panic::catch_unwind(|| qbz_nix_lib::run());
 
     if let Err(panic_info) = result {
         let msg = if let Some(s) = panic_info.downcast_ref::<String>() {

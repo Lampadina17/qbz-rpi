@@ -1,0 +1,134 @@
+name: Bug report
+description: Report something that is not working as expected
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: QBZ version
+      placeholder: e.g. v1.1.20
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - AppImage
+        - .deb
+        - .rpm
+        - AUR
+        - Tarball
+        - Flatpak
+        - Built from source
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution
+      placeholder: e.g. Arch Linux, Ubuntu 24.04, Fedora 43
+
+  - type: input
+    id: de
+    attributes:
+      label: Desktop environment / WM
+      placeholder: e.g. KDE Plasma 6, GNOME 46
+
+  - type: dropdown
+    id: display
+    attributes:
+      label: Display server
+      options:
+        - Wayland
+        - X11
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      placeholder: e.g. NVIDIA RTX 3070, AMD RX 6600 XT, Intel Iris Xe
+
+  - type: dropdown
+    id: audio_backend
+    attributes:
+      label: Audio backend
+      options:
+        - PipeWire
+        - ALSA Direct
+        - PulseAudio
+        - Auto
+
+  - type: input
+    id: dac
+    attributes:
+      label: Audio device / DAC
+      placeholder: e.g. Schiit Bifrost 2, FiiO K17
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Logs help us diagnose problems much faster.
+
+        1. Open **Settings > Developer Mode > View Logs**
+        2. Click **Upload** on both the **Terminal** and **Console** tabs
+        3. Paste both URLs here
+
+        **If QBZ crashes on startup**, run from terminal:
+        `flatpak run com.blitzfc.qbz 2>&1 | tee /tmp/qbz-crash.log`
+        Then upload: `curl -F'file=@/tmp/qbz-crash.log' https://0x0.st`
+      value: |
+        - Terminal log URL:
+        - Console log URL:
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help illustrate the issue.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that may help reproduce or understand the issue.

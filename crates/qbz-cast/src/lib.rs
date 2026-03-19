@@ -15,48 +15,32 @@
 //! - **MediaServer**: Local HTTP server for streaming audio to cast devices.
 //!   Supports byte-range requests for seeking.
 
+pub mod airplay;
+pub mod chromecast;
+pub mod dlna;
 pub mod errors;
 pub mod media_server;
-pub mod chromecast;
-pub mod airplay;
-pub mod dlna;
 
 // Re-export error types at root
-pub use errors::{CastError, AirPlayError, DlnaError};
+pub use errors::{AirPlayError, CastError, DlnaError};
 
 // Re-export media server
 pub use media_server::MediaServer;
 
 // Re-export Chromecast types
 pub use chromecast::{
-    CastApplication,
-    CastCommand,
-    CastDeviceConnection,
-    CastPositionInfo,
-    CastStatus,
-    ChromecastHandle,
-    DeviceDiscovery,
-    DiscoveredDevice,
-    MediaMetadata,
+    CastApplication, CastCommand, CastDeviceConnection, CastPositionInfo, CastStatus,
+    ChromecastHandle, DeviceDiscovery, DiscoveredDevice, MediaMetadata,
 };
 
 // Re-export AirPlay types
 pub use airplay::{
-    AirPlayConnection,
-    AirPlayDiscovery,
-    AirPlayMetadata,
-    AirPlayStatus,
-    DiscoveredAirPlayDevice,
+    AirPlayConnection, AirPlayDiscovery, AirPlayMetadata, AirPlayStatus, DiscoveredAirPlayDevice,
 };
 
 // Re-export DLNA types
 pub use dlna::{
-    DiscoveredDlnaDevice,
-    DlnaConnection,
-    DlnaDiscovery,
-    DlnaMetadata,
-    DlnaPositionInfo,
-    DlnaStatus,
+    DiscoveredDlnaDevice, DlnaConnection, DlnaDiscovery, DlnaMetadata, DlnaPositionInfo, DlnaStatus,
 };
 
 /// Cast device type alias for backwards compatibility

@@ -949,13 +949,19 @@ mod tests {
         let state = queue.get_state();
         assert_eq!(state.current_track.as_ref().map(|track| track.id), Some(3));
 
-        let mut upcoming_sorted = state.upcoming.iter().map(|track| track.id).collect::<Vec<u64>>();
+        let mut upcoming_sorted = state
+            .upcoming
+            .iter()
+            .map(|track| track.id)
+            .collect::<Vec<u64>>();
         upcoming_sorted.sort_unstable();
         assert_eq!(upcoming_sorted, vec![4, 5, 6]);
 
         let mut advanced = Vec::new();
         for _ in 0..3 {
-            let track = queue.next().expect("expected next track while remanent queue exists");
+            let track = queue
+                .next()
+                .expect("expected next track while remanent queue exists");
             advanced.push(track.id);
         }
         advanced.sort_unstable();

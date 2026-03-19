@@ -149,6 +149,47 @@ impl QueueManager {
         }
     }
 
+    /// Replace the queue and playback order in a single atomic update.
+    /// This avoids emitting an intermediate locally reshuffled state before an
+    /// authoritative remote shuffle order has been applied.
+    pub fn set_queue_with_order(
+        &self,
+        new_tracks: Vec<QueueTrack>,
+        start_index: Option<usize>,
+        shuffle_enabled: bool,
+        shuffle_order: Option<Vec<usize>>,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        state.tracks = new_tracks;
+        state.current_index = start_index;
+        state.history.clear();
+        state.shuffle = shuffle_enabled;
+
+        if !shuffle_enabled {
+            state.shuffle_order.clear();
+            state.shuffle_position = 0;
+            return;
+        }
+
+        if let Some(order) =
+            shuffle_order.filter(|order| Self::is_valid_shuffle_order(order, state.tracks.len()))
+        {
+            state.shuffle_order = order;
+            if let Some(curr_idx) = state.current_index {
+                if let Some(pos) = state.shuffle_order.iter().position(|&idx| idx == curr_idx) {
+                    state.shuffle_position = pos;
+                } else {
+                    state.shuffle_position = 0;
+                }
+            } else {
+                state.shuffle_position = 0;
+            }
+            return;
+        }
+
+        Self::set_identity_shuffle_order_internal(&mut state);
+    }
+
     /// Clear the queue
     pub fn clear(&self) {
         let mut state = self.state.lock().unwrap();
@@ -271,7 +312,10 @@ impl QueueManager {
             // In shuffle mode, DnD indices come from the visible upcoming list,
             // so they must be applied to shuffle_order positions (not absolute
             // track indices in state.tracks).
-            let base_pos = state.current_index.map(|_| state.shuffle_position + 1).unwrap_or(0);
+            let base_pos = state
+                .current_index
+                .map(|_| state.shuffle_position + 1)
+                .unwrap_or(0);
             let from_pos = base_pos + from_index;
             let to_pos = base_pos + to_index;
 
@@ -587,6 +631,38 @@ impl QueueManager {
         }
     }
 
+    /// Set shuffle mode using an authoritative order produced elsewhere.
+    /// Used by QConnect so the local queue follows the remote session order
+    /// instead of generating a second independent shuffle.
+    pub fn set_shuffle_with_order(&self, enabled: bool, shuffle_order: Option<Vec<usize>>) {
+        let mut state = self.state.lock().unwrap();
+        state.shuffle = enabled;
+
+        if !enabled {
+            state.shuffle_order.clear();
+            state.shuffle_position = 0;
+            return;
+        }
+
+        if let Some(order) =
+            shuffle_order.filter(|order| Self::is_valid_shuffle_order(order, state.tracks.len()))
+        {
+            state.shuffle_order = order;
+            if let Some(curr_idx) = state.current_index {
+                if let Some(pos) = state.shuffle_order.iter().position(|&idx| idx == curr_idx) {
+                    state.shuffle_position = pos;
+                } else {
+                    state.shuffle_position = 0;
+                }
+            } else {
+                state.shuffle_position = 0;
+            }
+            return;
+        }
+
+        Self::set_identity_shuffle_order_internal(&mut state);
+    }
+
     /// Get shuffle status
     pub fn is_shuffle(&self) -> bool {
         self.state.lock().unwrap().shuffle
@@ -692,6 +768,18 @@ impl QueueManager {
         }
     }
 
+    /// Preserve the existing queue order when shuffle is remote-controlled but
+    /// no authoritative remote order has arrived yet.
+    fn set_identity_shuffle_order_internal(state: &mut InternalState) {
+        state.shuffle_order = (0..state.tracks.len()).collect();
+
+        if let Some(curr_idx) = state.current_index {
+            state.shuffle_position = curr_idx.min(state.shuffle_order.len().saturating_sub(1));
+        } else {
+            state.shuffle_position = 0;
+        }
+    }
+
     /// Remap an index after remove+insert move operation.
     fn remap_index_after_move(idx: usize, from_idx: usize, to_idx: usize) -> usize {
         if idx == from_idx {
@@ -717,12 +805,18 @@ impl QueueManager {
 
     /// Remove one absolute track index from shuffle order and rebase remaining indices.
     fn remove_index_from_shuffle_internal(state: &mut InternalState, removed_idx: usize) {
-        if let Some(pos) = state.shuffle_order.iter().position(|&idx| idx == removed_idx) {
+        if let Some(pos) = state
+            .shuffle_order
+            .iter()
+            .position(|&idx| idx == removed_idx)
+        {
             state.shuffle_order.remove(pos);
 
             if pos < state.shuffle_position && state.shuffle_position > 0 {
                 state.shuffle_position -= 1;
-            } else if pos == state.shuffle_position && state.shuffle_position >= state.shuffle_order.len() {
+            } else if pos == state.shuffle_position
+                && state.shuffle_position >= state.shuffle_order.len()
+            {
                 state.shuffle_position = state.shuffle_order.len().saturating_sub(1);
             }
         }
@@ -742,6 +836,22 @@ impl QueueManager {
         } else {
             state.shuffle_position = 0;
         }
+    }
+
+    fn is_valid_shuffle_order(order: &[usize], track_count: usize) -> bool {
+        if order.len() != track_count {
+            return false;
+        }
+
+        let mut seen = vec![false; track_count];
+        for &idx in order {
+            if idx >= track_count || seen[idx] {
+                return false;
+            }
+            seen[idx] = true;
+        }
+
+        true
     }
 }
 
@@ -991,5 +1101,87 @@ mod tests {
         let state = queue.get_state();
         assert_eq!(state.total_tracks, 11);
         assert_eq!(state.upcoming.len(), 10);
+    }
+
+    #[test]
+    fn test_set_shuffle_with_order_uses_authoritative_order() {
+        let queue = QueueManager::new();
+        for i in 1..=5 {
+            queue.add_track(create_test_track(i));
+        }
+
+        queue.play_index(2);
+        queue.set_shuffle_with_order(true, Some(vec![2, 4, 1, 3, 0]));
+
+        let state = queue.get_state();
+        assert!(state.shuffle);
+        assert_eq!(
+            state
+                .upcoming
+                .iter()
+                .map(|track| track.id)
+                .collect::<Vec<_>>(),
+            vec![5, 2, 4, 1]
+        );
+    }
+
+    #[test]
+    fn test_set_shuffle_with_order_preserves_current_order_when_invalid() {
+        let queue = QueueManager::new();
+        for i in 1..=4 {
+            queue.add_track(create_test_track(i));
+        }
+
+        queue.play_index(1);
+        queue.set_shuffle_with_order(true, Some(vec![1, 1, 2, 3]));
+
+        let state = queue.get_state();
+        assert!(state.shuffle);
+        assert_eq!(
+            state
+                .upcoming
+                .iter()
+                .map(|track| track.id)
+                .collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+    }
+
+    #[test]
+    fn test_set_queue_with_order_applies_authoritative_shuffle_before_snapshot() {
+        let queue = QueueManager::new();
+        let tracks = (1..=5).map(create_test_track).collect::<Vec<_>>();
+
+        queue.set_queue_with_order(tracks, Some(0), true, Some(vec![0, 3, 1, 4, 2]));
+
+        let state = queue.get_state();
+        assert!(state.shuffle);
+        assert_eq!(
+            state
+                .upcoming
+                .iter()
+                .map(|track| track.id)
+                .collect::<Vec<_>>(),
+            vec![4, 2, 5, 3]
+        );
+    }
+
+    #[test]
+    fn test_set_queue_with_order_preserves_queue_order_when_authoritative_order_missing() {
+        let queue = QueueManager::new();
+        let tracks = (1..=5).map(create_test_track).collect::<Vec<_>>();
+
+        queue.set_queue_with_order(tracks, Some(1), true, None);
+
+        let state = queue.get_state();
+        assert!(state.shuffle);
+        assert_eq!(
+            state
+                .upcoming
+                .iter()
+                .map(|track| track.id)
+                .collect::<Vec<_>>(),
+            vec![3, 4, 5]
+        );
     }
 }

@@ -246,8 +246,10 @@ pub fn compute_affinity_score(
     }
 
     // Normalize candidate tags for comparison
-    let candidate_normalized: HashSet<String> =
-        candidate_tags.iter().map(|tag| normalize_genre(tag)).collect();
+    let candidate_normalized: HashSet<String> = candidate_tags
+        .iter()
+        .map(|tag| normalize_genre(tag))
+        .collect();
 
     // Core genre overlap
     let core_overlap = source_seeds

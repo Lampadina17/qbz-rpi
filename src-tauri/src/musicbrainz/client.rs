@@ -296,10 +296,7 @@ impl MusicBrainzClient {
     }
 
     /// Fetch artist tags only (lightweight, no relations)
-    pub async fn get_artist_tags(
-        &self,
-        mbid: &str,
-    ) -> Result<Vec<String>, String> {
+    pub async fn get_artist_tags(&self, mbid: &str) -> Result<Vec<String>, String> {
         if !self.is_enabled().await {
             return Err("MusicBrainz integration is disabled".to_string());
         }
@@ -335,7 +332,10 @@ impl MusicBrainzClient {
         // Sort by vote count descending — highest voted tag = primary genre
         tags.sort_by(|a, b| b.count.unwrap_or(0).cmp(&a.count.unwrap_or(0)));
 
-        Ok(tags.into_iter().map(|tag| tag.name.to_lowercase()).collect())
+        Ok(tags
+            .into_iter()
+            .map(|tag| tag.name.to_lowercase())
+            .collect())
     }
 
     /// Search artists by tag (genre)
@@ -363,7 +363,11 @@ impl MusicBrainzClient {
             limit
         );
 
-        log::debug!("MusicBrainz artist search by tag '{}' (limit {})", tag, limit);
+        log::debug!(
+            "MusicBrainz artist search by tag '{}' (limit {})",
+            tag,
+            limit
+        );
 
         let response = self
             .client
@@ -414,10 +418,7 @@ impl MusicBrainzClient {
         let search_area = country.unwrap_or(area_name);
         let escaped_area = Self::escape_query(search_area);
 
-        let query = format!(
-            "tag:\"{}\" AND area:\"{}\"",
-            escaped_tag, escaped_area
-        );
+        let query = format!("tag:\"{}\" AND area:\"{}\"", escaped_tag, escaped_area);
         let url = format!(
             "{}/artist?query={}&fmt=json&limit={}&offset={}",
             base_url,
@@ -426,10 +427,7 @@ impl MusicBrainzClient {
             offset
         );
 
-        log::debug!(
-            "MusicBrainz artist search: {}",
-            query
-        );
+        log::debug!("MusicBrainz artist search: {}", query);
 
         let response = self
             .client
@@ -633,7 +631,9 @@ impl MusicBrainzClient {
 
         log::debug!(
             "MusicBrainz browse artists by area {} (limit {}, offset {})",
-            area_id, limit, offset
+            area_id,
+            limit,
+            offset
         );
 
         let response = self
@@ -720,10 +720,7 @@ impl MusicBrainzClient {
         self.rate_limiter.wait().await;
 
         let base_url = self.base_url().await;
-        let url = format!(
-            "{}/area/{}?inc=area-rels&fmt=json",
-            base_url, area_id
-        );
+        let url = format!("{}/area/{}?inc=area-rels&fmt=json", base_url, area_id);
 
         log::debug!("MusicBrainz area lookup with relations: {}", area_id);
 

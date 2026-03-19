@@ -28,31 +28,28 @@
 //! let db = LibraryDatabase::open(Path::new("library.db")).unwrap();
 //! ```
 
-mod errors;
-mod models;
-mod scanner;
-mod thumbnails;
-mod metadata;
 mod cue_parser;
 mod database;
+mod errors;
+mod metadata;
+mod models;
+mod scanner;
 mod tag_sidecar;
+mod thumbnails;
 
 // Re-exports
+pub use cue_parser::{cue_to_tracks, CueParser, CueSheet, CueTime, CueTrack};
+pub use database::{
+    AlbumTrackUpdate, LibraryDatabase, LibraryFolder, LibraryStats, LocalContentStatus,
+    PlaylistFolder, PlaylistSettings, PlaylistStats, TrackMetadataUpdateFull,
+};
 pub use errors::LibraryError;
+pub use metadata::MetadataExtractor;
 pub use models::*;
 pub use scanner::{LibraryScanner, ScanResult};
 pub use thumbnails::{
-    generate_thumbnail, generate_thumbnail_from_bytes,
-    get_thumbnail_path, get_thumbnails_dir, thumbnail_exists,
-    get_or_generate_thumbnail, clear_thumbnails, get_cache_size,
-};
-pub use metadata::MetadataExtractor;
-pub use cue_parser::{CueParser, CueSheet, CueTrack, CueTime, cue_to_tracks};
-pub use database::{
-    LibraryDatabase, LibraryFolder, LibraryStats,
-    AlbumTrackUpdate, TrackMetadataUpdateFull,
-    PlaylistFolder, PlaylistSettings, PlaylistStats,
-    LocalContentStatus,
+    clear_thumbnails, generate_thumbnail, generate_thumbnail_from_bytes, get_cache_size,
+    get_or_generate_thumbnail, get_thumbnail_path, get_thumbnails_dir, thumbnail_exists,
 };
 
 // Re-export database module for backwards compatibility

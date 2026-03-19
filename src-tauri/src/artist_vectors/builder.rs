@@ -8,7 +8,9 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::api::QobuzClient;
 use qbz_integrations::musicbrainz::cache::MusicBrainzCache;
-use qbz_integrations::musicbrainz::{ArtistFullResponse, ArtistRelationships, Period, RelatedArtist};
+use qbz_integrations::musicbrainz::{
+    ArtistFullResponse, ArtistRelationships, Period, RelatedArtist,
+};
 use qbz_integrations::MusicBrainzClient;
 
 use super::sparse_vector::SparseVector;

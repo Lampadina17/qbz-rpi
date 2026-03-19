@@ -45,6 +45,6 @@ pub mod cache;
 
 pub use client::{ListenBrainzClient, ListenBrainzConfig};
 pub use models::{
-    ListenType, TrackMetadata, AdditionalInfo, Listen, SubmitListensPayload,
-    ListenBrainzStatus, UserInfo, QueuedListen,
+    AdditionalInfo, Listen, ListenBrainzStatus, ListenType, QueuedListen, SubmitListensPayload,
+    TrackMetadata, UserInfo,
 };

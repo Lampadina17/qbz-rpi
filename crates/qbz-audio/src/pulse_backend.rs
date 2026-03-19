@@ -30,10 +30,7 @@ impl AudioBackend for PulseBackend {
         self.inner.enumerate_devices()
     }
 
-    fn create_output_stream(
-        &self,
-        config: &BackendConfig,
-    ) -> BackendResult<MixerDeviceSink> {
+    fn create_output_stream(&self, config: &BackendConfig) -> BackendResult<MixerDeviceSink> {
         // Delegate to PipeWire backend (same mechanism)
         self.inner.create_output_stream(config)
     }

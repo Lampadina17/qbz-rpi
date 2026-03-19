@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { Play, Pause, Heart, HardDrive, AlertCircle, Ban, Music } from 'lucide-svelte';
   import { t } from '$lib/i18n';
+  import { cachedSrc } from '$lib/actions/cachedImage';
   import TrackMenu from './TrackMenu.svelte';
   import DownloadButton from './DownloadButton.svelte';
   import {
@@ -232,7 +233,7 @@
         <Music size={14} />
       </div>
       {#if artworkUrl}
-        <img src={artworkUrl} alt={title} loading="lazy" decoding="async" />
+        <img use:cachedSrc={artworkUrl} alt={title} loading="lazy" decoding="async" />
       {/if}
     </div>
   {/if}

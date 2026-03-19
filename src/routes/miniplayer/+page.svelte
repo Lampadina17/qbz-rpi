@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { LogicalSize } from '@tauri-apps/api/dpi';
   import { t } from '$lib/i18n';
@@ -13,6 +14,7 @@
     setVolume as playerSetVolume,
     setIsSkipping,
     stop as stopPlayback,
+    toggleMute,
     startPolling,
     stopPolling,
     type PlayerState
@@ -55,6 +57,10 @@
     handleKeydown as keybindingHandler
   } from '$lib/stores/keybindingsStore';
   import { playTrack } from '$lib/services/playbackService';
+  import {
+    isPlaybackSourceLocal,
+    resolvePlaybackSource
+  } from '$lib/services/playbackSource';
 
   let playerState = $state<PlayerState>(getPlayerState());
   let queueState = $state<QueueState>(getQueueState());
@@ -303,8 +309,33 @@
     }
   }
 
+  async function handleVolumeChange(newVolume: number): Promise<void> {
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_set_volume_if_remote', { volume: newVolume });
+      if (handledRemotely) return;
+    } catch {
+      // Fall through to local
+    }
+    playerSetVolume(newVolume);
+  }
+
+  async function handleToggleMute(): Promise<void> {
+    const currentlyMuted = playerState.volume === 0;
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_mute_if_remote', { value: !currentlyMuted });
+      if (handledRemotely) return;
+    } catch {
+      // Fall through to local
+    }
+    await toggleMute();
+  }
+
   async function handleTogglePlay(): Promise<void> {
     try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_toggle_play_if_remote');
+      if (handledRemotely) {
+        return;
+      }
       await togglePlay();
     } catch (err) {
       console.error('[MiniPlayer] togglePlay failed:', err);
@@ -312,8 +343,8 @@
   }
 
   async function playQueueTrack(track: BackendQueueTrack): Promise<void> {
-    const source = track.source ?? (track.is_local ? 'local' : 'qobuz');
-    const isLocal = source !== 'qobuz';
+    const source = resolvePlaybackSource(track);
+    const isLocal = isPlaybackSourceLocal(source, track.is_local ?? false);
     const quality = isLocal
       ? 'Local'
       : track.bit_depth && track.sample_rate
@@ -348,6 +379,14 @@
 
   async function handleQueueTrackPlay(trackId: string): Promise<void> {
     try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_play_track_if_remote', { trackId: parseInt(trackId, 10) });
+      if (handledRemotely) return;
+    } catch (err) {
+      console.error('[MiniPlayer] remote queue track play handoff failed:', err);
+      return;
+    }
+
+    try {
       const queueSnapshot = await getBackendQueueState();
       if (!queueSnapshot) return;
 
@@ -381,6 +420,17 @@
   async function handleSkipBack(): Promise<void> {
     const state = getPlayerState();
     if (!state.currentTrack || state.isSkipping) return;
+
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_skip_previous_if_remote');
+      if (handledRemotely) {
+        return;
+      }
+    } catch (err) {
+      console.error('[MiniPlayer] remote previous handoff failed:', err);
+      return;
+    }
+
     if (state.currentTime > 3) {
       playerSeek(0);
       return;
@@ -405,6 +455,16 @@
     const state = getPlayerState();
     if (!state.currentTrack || state.isSkipping) return;
 
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_skip_next_if_remote');
+      if (handledRemotely) {
+        return;
+      }
+    } catch (err) {
+      console.error('[MiniPlayer] remote next handoff failed:', err);
+      return;
+    }
+
     setIsSkipping(true);
     try {
       const next = await nextTrack();
@@ -422,6 +482,14 @@
 
   async function handleToggleShuffle(): Promise<void> {
     try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_toggle_shuffle_if_remote');
+      if (handledRemotely) return;
+    } catch (err) {
+      console.error('[MiniPlayer] remote shuffle handoff failed:', err);
+      return;
+    }
+
+    try {
       await toggleShuffle();
     } catch (err) {
       console.error('[MiniPlayer] toggleShuffle failed:', err);
@@ -429,6 +497,14 @@
   }
 
   async function handleToggleRepeat(): Promise<void> {
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_cycle_repeat_if_remote');
+      if (handledRemotely) return;
+    } catch (err) {
+      console.error('[MiniPlayer] remote repeat handoff failed:', err);
+      return;
+    }
+
     try {
       await toggleRepeat();
     } catch (err) {
@@ -468,7 +544,8 @@
     onSkipBack={handleSkipBack}
     onSkipForward={handleSkipForward}
     onSeek={playerSeek}
-    onVolumeChange={playerSetVolume}
+    onVolumeChange={handleVolumeChange}
+    onToggleMute={handleToggleMute}
     onToggleShuffle={handleToggleShuffle}
     onToggleRepeat={handleToggleRepeat}
     onQueueTrackPlay={(trackId) => {

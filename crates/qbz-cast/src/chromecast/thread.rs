@@ -8,8 +8,8 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::chromecast::device::CastDeviceConnection;
+use crate::chromecast::{CastPositionInfo, CastStatus, MediaMetadata};
 use crate::CastError;
-use crate::chromecast::{CastStatus, MediaMetadata, CastPositionInfo};
 
 /// Commands sent to the Chromecast thread
 pub enum CastCommand {

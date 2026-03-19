@@ -6,6 +6,7 @@
 pub mod commands_v2;
 pub mod core_bridge;
 pub mod integrations_v2;
+pub mod qconnect_service;
 pub mod runtime;
 pub mod session_lifecycle;
 pub mod tauri_adapter;
@@ -27,7 +28,6 @@ pub mod credentials;
 pub mod discogs;
 pub mod flatpak;
 pub mod image_cache;
-pub mod snap;
 pub mod lastfm;
 pub mod library;
 pub mod listenbrainz;
@@ -39,6 +39,7 @@ pub mod musicbrainz;
 pub mod network;
 pub mod offline;
 pub mod offline_cache;
+pub mod pdf_viewer;
 pub mod playback_context;
 #[allow(deprecated)]
 pub mod player;
@@ -49,12 +50,13 @@ pub mod radio_engine;
 pub mod reco_store;
 pub mod session_store;
 pub mod share;
+pub mod snap;
 pub mod tray;
 pub mod updates;
 pub mod user_data;
 pub mod visualizer;
-pub mod pdf_viewer;
 
+use rustls::crypto::{aws_lc_rs, CryptoProvider};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio::sync::{Mutex, RwLock};
@@ -165,15 +167,9 @@ pub fn update_media_controls_metadata(
     media_controls.set_metadata(&track_info);
 }
 
-/// Add a KWin window rule that forces server-side decorations (SSD) for QBZ.
-///
-/// GTK3 on Wayland hardcodes CLIENT_SIDE in the xdg-decoration protocol,
-/// so KWin scripting alone can't override it. Window rules operate at a
-/// deeper level (applied during window setup, before protocol negotiation)
-/// and can force KWin to draw native SSD.
-///
-/// The rule is written to ~/.config/kwinrulesrc and persists across sessions.
-/// It's removed when the user disables system title bar.
+/// DEPRECATED: KWin SSD hack removed — caused double titlebar + CPU spike.
+/// Kept temporarily for the cleanup block that removes stale rules.
+#[allow(dead_code)]
 fn setup_kwin_window_rule() -> Result<(), String> {
     let config_path = dirs::config_dir()
         .ok_or_else(|| "Could not determine config directory".to_string())?
@@ -212,7 +208,10 @@ fn setup_kwin_window_rule() -> Result<(), String> {
     }
 
     let rule_num = if let Some(num) = qbz_rule_group {
-        log::info!("KWin window rule for QBZ already exists (group {}), updating", num);
+        log::info!(
+            "KWin window rule for QBZ already exists (group {}), updating",
+            num
+        );
         num
     } else {
         existing_count + 1
@@ -223,16 +222,24 @@ fn setup_kwin_window_rule() -> Result<(), String> {
     let rules: &[(&str, &str)] = &[
         ("Description", "QBZ Native Title Bar"),
         ("noborder", "false"),
-        ("noborderrule", "2"),       // 2 = Force
+        ("noborderrule", "2"), // 2 = Force
         ("wmclass", "qbz"),
         ("wmclasscomplete", "false"),
-        ("wmclassmatch", "1"),       // 1 = Exact match
-        ("types", "1"),              // 1 = Normal windows
+        ("wmclassmatch", "1"), // 1 = Exact match
+        ("types", "1"),        // 1 = Normal windows
     ];
 
     for (key, value) in rules {
         let output = std::process::Command::new("kwriteconfig6")
-            .args(["--file", "kwinrulesrc", "--group", &group, "--key", key, value])
+            .args([
+                "--file",
+                "kwinrulesrc",
+                "--group",
+                &group,
+                "--key",
+                key,
+                value,
+            ])
             .output()
             .map_err(|e| format!("kwriteconfig6 failed: {}", e))?;
 
@@ -249,7 +256,15 @@ fn setup_kwin_window_rule() -> Result<(), String> {
     if qbz_rule_group.is_none() {
         let new_count = (existing_count + 1).to_string();
         let output = std::process::Command::new("kwriteconfig6")
-            .args(["--file", "kwinrulesrc", "--group", "General", "--key", "count", &new_count])
+            .args([
+                "--file",
+                "kwinrulesrc",
+                "--group",
+                "General",
+                "--key",
+                "count",
+                &new_count,
+            ])
             .output()
             .map_err(|e| format!("kwriteconfig6 count update failed: {}", e))?;
 
@@ -274,7 +289,10 @@ fn setup_kwin_window_rule() -> Result<(), String> {
         );
     }
 
-    log::info!("KWin window rule set for native title bar (group {})", rule_num);
+    log::info!(
+        "KWin window rule set for native title bar (group {})",
+        rule_num
+    );
     Ok(())
 }
 
@@ -322,7 +340,15 @@ fn remove_kwin_window_rule() {
         if count > 0 {
             let new_count = (count - 1).to_string();
             let _ = std::process::Command::new("kwriteconfig6")
-                .args(["--file", "kwinrulesrc", "--group", "General", "--key", "count", &new_count])
+                .args([
+                    "--file",
+                    "kwinrulesrc",
+                    "--group",
+                    "General",
+                    "--key",
+                    "count",
+                    &new_count,
+                ])
                 .output();
         }
 
@@ -354,8 +380,14 @@ fn get_screen_resolution() -> Option<(f64, f64)> {
                     if let Some(dims) = trimmed.split_whitespace().nth(1) {
                         let parts: Vec<&str> = dims.split('x').collect();
                         if parts.len() == 2 {
-                            if let (Ok(w), Ok(h)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
-                                log::info!("Screen resolution detected via xdpyinfo: {}x{}", w as u32, h as u32);
+                            if let (Ok(w), Ok(h)) =
+                                (parts[0].parse::<f64>(), parts[1].parse::<f64>())
+                            {
+                                log::info!(
+                                    "Screen resolution detected via xdpyinfo: {}x{}",
+                                    w as u32,
+                                    h as u32
+                                );
                                 return Some((w, h));
                             }
                         }
@@ -379,8 +411,14 @@ fn get_screen_resolution() -> Option<(f64, f64)> {
                             let res_part = token.split('+').next().unwrap_or("");
                             let parts: Vec<&str> = res_part.split('x').collect();
                             if parts.len() == 2 {
-                                if let (Ok(w), Ok(h)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
-                                    log::info!("Screen resolution detected via xrandr: {}x{}", w as u32, h as u32);
+                                if let (Ok(w), Ok(h)) =
+                                    (parts[0].parse::<f64>(), parts[1].parse::<f64>())
+                                {
+                                    log::info!(
+                                        "Screen resolution detected via xrandr: {}x{}",
+                                        w as u32,
+                                        h as u32
+                                    );
                                     return Some((w, h));
                                 }
                             }
@@ -405,9 +443,7 @@ fn apply_linux_webkit_workarounds() {
         .unwrap_or(false);
 
     if force_gpu {
-        log::warn!(
-            "QBZ_WEBKIT_FORCE_GPU is enabled; skipping Linux WebKit safety workarounds"
-        );
+        log::warn!("QBZ_WEBKIT_FORCE_GPU is enabled; skipping Linux WebKit safety workarounds");
         return;
     }
 
@@ -461,6 +497,12 @@ pub fn run() {
     // Load .env file if present (for development)
     // Silently ignore if not found (production builds use compile-time env vars)
     dotenvy::dotenv().ok();
+
+    // rustls 0.23 requires an explicit process-level crypto provider when
+    // multiple provider features are present in the dependency graph.
+    if CryptoProvider::get_default().is_none() {
+        let _ = aws_lc_rs::default_provider().install_default();
+    }
 
     // Initialize logging with TeeWriter (captures to ring buffer + stderr)
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -552,27 +594,26 @@ pub fn run() {
     let mut saved_win_height = window_settings.window_height;
     let saved_win_maximized = window_settings.is_maximized;
 
-    // Safety: clamp window size to screen resolution.
-    // Prevents the window from opening larger than the display (issue #139).
-    // This also handles corrupt DB values that pass the 200..32767 validation
-    // but exceed the actual monitor dimensions.
+    // Safety: clamp obviously corrupt window sizes.
+    // Only catches absurd values (>8K) — the window manager handles the rest.
+    // Previous approach used xdpyinfo which returns combined multi-monitor
+    // resolution (e.g. 6000x1600 for dual monitors), causing false positives.
     #[cfg(target_os = "linux")]
     {
-        // Read current screen resolution from xdpyinfo or Wayland
-        if let Some((screen_w, screen_h)) = get_screen_resolution() {
-            // Leave room for taskbar/panels (90% of screen)
-            let max_w = screen_w * 0.95;
-            let max_h = screen_h * 0.95;
-            if saved_win_width > max_w || saved_win_height > max_h {
-                log::warn!(
-                    "Window size {}x{} exceeds screen {}x{}, clamping to {}x{}",
-                    saved_win_width as u32, saved_win_height as u32,
-                    screen_w as u32, screen_h as u32,
-                    max_w as u32, max_h as u32
-                );
-                saved_win_width = saved_win_width.min(max_w);
-                saved_win_height = saved_win_height.min(max_h);
-            }
+        const MAX_SANE_WIDTH: f64 = 7680.0;  // 8K
+        const MAX_SANE_HEIGHT: f64 = 4320.0; // 8K
+        const FALLBACK_WIDTH: f64 = 1920.0;
+        const FALLBACK_HEIGHT: f64 = 1080.0;
+        if saved_win_width > MAX_SANE_WIDTH || saved_win_height > MAX_SANE_HEIGHT {
+            log::warn!(
+                "Window size {}x{} looks corrupt, falling back to {}x{}",
+                saved_win_width as u32,
+                saved_win_height as u32,
+                FALLBACK_WIDTH as u32,
+                FALLBACK_HEIGHT as u32
+            );
+            saved_win_width = FALLBACK_WIDTH;
+            saved_win_height = FALLBACK_HEIGHT;
         }
     }
 
@@ -667,22 +708,20 @@ pub fn run() {
     let listenbrainz_v2_state = integrations_v2::ListenBrainzV2State::new();
     let musicbrainz_v2_state = integrations_v2::MusicBrainzV2State::new();
     let lastfm_v2_state = integrations_v2::LastFmV2State::new();
-    let image_cache_settings_state = config::ImageCacheSettingsState::new()
-        .unwrap_or_else(|e| {
-            log::warn!(
-                "Failed to initialize image cache settings: {}. Using empty state.",
-                e
-            );
-            config::ImageCacheSettingsState::new_empty()
-        });
-    let image_cache_state = image_cache::ImageCacheState::new()
-        .unwrap_or_else(|e| {
-            log::warn!(
-                "Failed to initialize image cache: {}. Using empty state.",
-                e
-            );
-            image_cache::ImageCacheState::new_empty()
-        });
+    let image_cache_settings_state = config::ImageCacheSettingsState::new().unwrap_or_else(|e| {
+        log::warn!(
+            "Failed to initialize image cache settings: {}. Using empty state.",
+            e
+        );
+        config::ImageCacheSettingsState::new_empty()
+    });
+    let image_cache_state = image_cache::ImageCacheState::new().unwrap_or_else(|e| {
+        log::warn!(
+            "Failed to initialize image cache: {}. Using empty state.",
+            e
+        );
+        image_cache::ImageCacheState::new_empty()
+    });
     let developer_settings_state = config::developer_settings::DeveloperSettingsState::new()
         .unwrap_or_else(|e| {
             log::warn!(
@@ -746,38 +785,12 @@ pub fn run() {
         ))
         .manage(core_bridge::CoreBridgeState::new())
         .manage(runtime::RuntimeManagerState::new())
+        .manage(qconnect_service::QconnectServiceState::new())
         .manage(user_data_paths)
         .setup(move |app| {
-            // On KDE Plasma + Wayland, GTK3 always uses client-side decorations
-            // (CSD) regardless of GTK_CSD env var, because it hardcodes
-            // CLIENT_SIDE in the xdg-decoration protocol. This means
-            // decorations(true) shows a GTK/Breeze-GTK title bar, not the
-            // native KDE Breeze one.
-            //
-            // Workaround: create the window with decorations=false (no GTK CSD),
-            // then load a KWin script via D-Bus that forces KWin to draw its own
-            // server-side decorations (SSD) for QBZ. This gives a single, native
-            // KDE title bar identical to Dolphin/Konsole.
-            let is_kde_wayland = std::env::var("GDK_BACKEND")
-                .map(|v| v == "wayland")
-                .unwrap_or(false)
-                && auto_theme::system::detect_desktop_environment()
-                    == auto_theme::system::DesktopEnvironment::KdePlasma;
-
-            let use_kwin_ssd = use_system_titlebar && is_kde_wayland;
-
-            // On KDE Wayland: always decorations=false, KWin script adds SSD
-            // On other DEs: use decorations directly (GTK CSD is acceptable)
-            let gtk_decorations = if use_kwin_ssd {
-                false
-            } else {
-                use_system_titlebar
-            };
-
             log::info!(
-                "Creating main window (decorations={}, kwin_ssd={})",
-                gtk_decorations,
-                use_kwin_ssd
+                "Creating main window (decorations={})",
+                use_system_titlebar
             );
             let main_window_transparent = should_use_main_window_transparency();
             log::info!(
@@ -792,7 +805,7 @@ pub fn run() {
             .title("QBZ")
             .inner_size(saved_win_width, saved_win_height)
             .min_inner_size(800.0, 600.0)
-            .decorations(gtk_decorations)
+            .decorations(use_system_titlebar)
             .transparent(main_window_transparent)
             .resizable(true)
             .zoom_hotkeys_enabled(true)
@@ -842,15 +855,6 @@ pub fn run() {
                             }
                         }
                         _ => {}
-                    }
-                });
-            }
-
-            // Add KWin window rule to force server-side decorations for QBZ
-            if use_kwin_ssd {
-                std::thread::spawn(|| {
-                    if let Err(e) = setup_kwin_window_rule() {
-                        log::warn!("Failed to set KWin window rule: {}", e);
                     }
                 });
             }
@@ -1168,6 +1172,39 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands_v2::runtime_get_status,
             commands_v2::runtime_bootstrap,
+            qconnect_service::v2_qconnect_connect,
+            qconnect_service::v2_qconnect_disconnect,
+            qconnect_service::v2_qconnect_status,
+            qconnect_service::v2_qconnect_send_command,
+            qconnect_service::v2_qconnect_evaluate_queue_admission,
+            qconnect_service::v2_qconnect_send_command_with_admission,
+            qconnect_service::v2_qconnect_join_session,
+            qconnect_service::v2_qconnect_set_player_state,
+            qconnect_service::v2_qconnect_toggle_play_if_remote,
+            qconnect_service::v2_qconnect_play_track_if_remote,
+            qconnect_service::v2_qconnect_skip_next_if_remote,
+            qconnect_service::v2_qconnect_skip_previous_if_remote,
+            qconnect_service::v2_qconnect_set_volume_if_remote,
+            qconnect_service::v2_qconnect_mute_if_remote,
+            qconnect_service::v2_qconnect_stop_if_remote,
+            qconnect_service::v2_qconnect_toggle_shuffle_if_remote,
+            qconnect_service::v2_qconnect_cycle_repeat_if_remote,
+            qconnect_service::v2_qconnect_set_autoplay_mode_if_remote,
+            qconnect_service::v2_qconnect_autoplay_load_tracks_if_remote,
+            qconnect_service::v2_qconnect_set_active_renderer,
+            qconnect_service::v2_qconnect_set_volume,
+            qconnect_service::v2_qconnect_set_loop_mode,
+            qconnect_service::v2_qconnect_mute_volume,
+            qconnect_service::v2_qconnect_set_max_audio_quality,
+            qconnect_service::v2_qconnect_ask_for_renderer_state,
+            qconnect_service::v2_qconnect_queue_snapshot,
+            qconnect_service::v2_qconnect_renderer_snapshot,
+            qconnect_service::v2_qconnect_session_snapshot,
+            qconnect_service::v2_qconnect_report_playback_state,
+            qconnect_service::v2_qconnect_report_volume,
+            qconnect_service::v2_qconnect_get_device_name,
+            qconnect_service::v2_qconnect_set_device_name,
+            qconnect_service::v2_get_hostname,
             commands_v2::v2_is_logged_in,
             commands_v2::v2_login,
             commands_v2::v2_logout,
@@ -1411,6 +1448,8 @@ pub fn run() {
             commands_v2::v2_save_image_url_to_file,
             commands_v2::v2_show_track_notification,
             commands_v2::v2_subscribe_playlist,
+            commands_v2::v2_qobuz_subscribe_playlist,
+            commands_v2::v2_qobuz_unsubscribe_playlist,
             commands_v2::v2_cache_track_for_offline,
             commands_v2::v2_cache_tracks_batch_for_offline,
             commands_v2::v2_start_legacy_migration,
@@ -1626,7 +1665,7 @@ pub fn run() {
             commands_v2::v2_get_system_color_scheme,
             commands_v2::v2_extract_palette,
             commands_v2::v2_fetch_url_bytes,
-            // PDF booklet viewer (MuPDF backend)
+            // PDF booklet viewer (MuPDF backend when "booklet" feature is enabled, stubs otherwise)
             pdf_viewer::v2_booklet_open,
             pdf_viewer::v2_booklet_render_page,
             pdf_viewer::v2_booklet_save,

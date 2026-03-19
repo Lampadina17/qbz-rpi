@@ -166,13 +166,10 @@ fn get_gnome_accent() -> Result<PaletteColor, String> {
 
 fn get_kde_wallpaper() -> Result<String, String> {
     let home = env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-    let config_path = format!(
-        "{}/.config/plasma-org.kde.plasma.desktop-appletsrc",
-        home
-    );
+    let config_path = format!("{}/.config/plasma-org.kde.plasma.desktop-appletsrc", home);
 
-    let content =
-        fs::read_to_string(&config_path).map_err(|e| format!("Cannot read Plasma config: {}", e))?;
+    let content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Cannot read Plasma config: {}", e))?;
 
     // Look for Image= under [Wallpaper][org.kde.image][General]
     let mut in_wallpaper_section = false;
@@ -375,12 +372,7 @@ fn get_xfce_wallpaper() -> Result<String, String> {
 
     // Fallback: try generic monitor path
     let output = Command::new("xfconf-query")
-        .args([
-            "-c",
-            "xfce4-desktop",
-            "-l",
-            "-v",
-        ])
+        .args(["-c", "xfce4-desktop", "-l", "-v"])
         .output()
         .map_err(|e| format!("Failed to list xfce4-desktop properties: {}", e))?;
 
@@ -542,7 +534,11 @@ fn get_kde_color_scheme() -> Result<SystemColorScheme, String> {
         view_bg: read_kde_color_key(&content, "[Colors:View]", "BackgroundNormal"),
         button_bg: read_kde_color_key(&content, "[Colors:Button]", "BackgroundNormal"),
         header_bg: read_kde_color_key(&content, "[Colors:Header]", "BackgroundNormal"),
-        header_bg_inactive: read_kde_color_key(&content, "[Colors:Header][Inactive]", "BackgroundNormal"),
+        header_bg_inactive: read_kde_color_key(
+            &content,
+            "[Colors:Header][Inactive]",
+            "BackgroundNormal",
+        ),
         tooltip_bg: read_kde_color_key(&content, "[Colors:Tooltip]", "BackgroundNormal"),
 
         // Foregrounds
@@ -555,9 +551,8 @@ fn get_kde_color_scheme() -> Result<SystemColorScheme, String> {
         selection_bg: read_kde_color_key(&content, "[Colors:Selection]", "BackgroundNormal"),
         selection_fg: read_kde_color_key(&content, "[Colors:Selection]", "ForegroundNormal"),
         selection_hover: read_kde_color_key(&content, "[Colors:Selection]", "DecorationHover"),
-        accent: accent_explicit.or_else(|| {
-            read_kde_color_key(&content, "[Colors:Selection]", "DecorationFocus")
-        }),
+        accent: accent_explicit
+            .or_else(|| read_kde_color_key(&content, "[Colors:Selection]", "DecorationFocus")),
 
         // Semantic
         fg_link: read_kde_color_key(&content, "[Colors:Window]", "ForegroundLink"),
@@ -602,7 +597,7 @@ fn get_gnome_color_scheme() -> Result<SystemColorScheme, String> {
     // Build a minimal scheme with GNOME defaults
     let (bg, bg_alt, view_bg, btn_bg, fg, fg_inactive) = if is_dark {
         (
-            PaletteColor::new(36, 36, 36),   // Adwaita Dark
+            PaletteColor::new(36, 36, 36), // Adwaita Dark
             PaletteColor::new(48, 48, 48),
             PaletteColor::new(30, 30, 30),
             PaletteColor::new(60, 60, 60),

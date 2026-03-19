@@ -6,8 +6,8 @@ use reqwest::Client;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::error::{IntegrationError, IntegrationResult};
 use super::models::*;
+use crate::error::{IntegrationError, IntegrationResult};
 
 /// ListenBrainz API base URL
 const LISTENBRAINZ_API_URL: &str = "https://api.listenbrainz.org/1";
@@ -113,9 +113,9 @@ impl ListenBrainzClient {
             return Err(IntegrationError::AuthFailed(validation.message));
         }
 
-        let user_name = validation
-            .user_name
-            .ok_or_else(|| IntegrationError::AuthFailed("Token valid but no username returned".into()))?;
+        let user_name = validation.user_name.ok_or_else(|| {
+            IntegrationError::AuthFailed("Token valid but no username returned".into())
+        })?;
 
         // Store validated token and username
         {
@@ -174,7 +174,10 @@ impl ListenBrainzClient {
             )));
         }
 
-        response.json::<TokenValidationResponse>().await.map_err(Into::into)
+        response
+            .json::<TokenValidationResponse>()
+            .await
+            .map_err(Into::into)
     }
 
     /// Submit "now playing" notification
@@ -261,7 +264,11 @@ impl ListenBrainzClient {
     }
 
     /// Internal: Submit listens to API
-    async fn submit_listens(&self, token: &str, payload: &SubmitListensPayload) -> IntegrationResult<()> {
+    async fn submit_listens(
+        &self,
+        token: &str,
+        payload: &SubmitListensPayload,
+    ) -> IntegrationResult<()> {
         let url = format!("{}/submit-listens", LISTENBRAINZ_API_URL);
 
         let response = self

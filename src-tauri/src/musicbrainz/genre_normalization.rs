@@ -255,7 +255,13 @@ pub fn genre_summary(seeds: &AffinitySeeds) -> String {
     if seeds.genres.is_empty() {
         return String::new();
     }
-    seeds.genres.iter().take(3).cloned().collect::<Vec<_>>().join(" / ")
+    seeds
+        .genres
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" / ")
 }
 
 #[cfg(test)]
@@ -276,10 +282,22 @@ mod tests {
     #[test]
     fn test_noisy_tags_filtered() {
         let tags = vec![
-            Tag { name: "rock".to_string(), count: Some(10) },
-            Tag { name: "seen live".to_string(), count: Some(8) },
-            Tag { name: "awesome".to_string(), count: Some(5) },
-            Tag { name: "grunge".to_string(), count: Some(4) },
+            Tag {
+                name: "rock".to_string(),
+                count: Some(10),
+            },
+            Tag {
+                name: "seen live".to_string(),
+                count: Some(8),
+            },
+            Tag {
+                name: "awesome".to_string(),
+                count: Some(5),
+            },
+            Tag {
+                name: "grunge".to_string(),
+                count: Some(4),
+            },
         ];
 
         let seeds = extract_affinity_seeds(&tags);

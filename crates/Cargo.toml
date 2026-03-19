@@ -11,6 +11,10 @@ members = [
     "qbz-cache",
     "qbz-library",
     "qbz-cast",
+    "qconnect-core",
+    "qconnect-protocol",
+    "qconnect-transport-ws",
+    "qconnect-app",
 ]
 
 [workspace.package]

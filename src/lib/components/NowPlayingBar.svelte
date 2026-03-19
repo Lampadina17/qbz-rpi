@@ -20,6 +20,7 @@
   } from 'lucide-svelte';
   import QualityBadge from './QualityBadge.svelte';
   import AudioOutputBadges from './AudioOutputBadges.svelte';
+  import QconnectBadge from './QconnectBadge.svelte';
   import StackIcon from './StackIcon.svelte';
   import { cachedSrc } from '$lib/actions/cachedImage';
   import { t as translateStore } from '$lib/i18n';
@@ -30,6 +31,7 @@
     type OfflineReason
   } from '$lib/stores/offlineStore';
   import { toggleMute } from '$lib/stores/playerStore';
+  import type { QconnectSessionSnapshot } from '$lib/services/qconnectRuntime';
 
   interface Props {
     artwork?: string;
@@ -63,9 +65,11 @@
     onOpenFullScreen?: () => void;
     onOpenMiniPlayer?: () => void;
     onCast?: () => void;
+    onQobuzConnect?: () => void;
     onToggleLyrics?: () => void;
     lyricsActive?: boolean;
     isCastConnected?: boolean;
+    isQobuzConnectConnected?: boolean;
     onArtistClick?: () => void;
     onAlbumClick?: () => void;
     onTrackClick?: () => void;
@@ -76,6 +80,11 @@
     onToggleNormalization?: () => void;
     controlsDisabled?: boolean;
     explicit?: boolean;
+    qconnectSessionSnapshot?: QconnectSessionSnapshot | null;
+    onToggleQconnectConnection?: () => void | Promise<void>;
+    qconnectBusy?: boolean;
+    showQconnectDevButton?: boolean;
+    volumeLocked?: boolean;
   }
 
   let {
@@ -110,9 +119,11 @@
     onOpenFullScreen,
     onOpenMiniPlayer,
     onCast,
+    onQobuzConnect,
     onToggleLyrics,
     lyricsActive = false,
     isCastConnected = false,
+    isQobuzConnectConnected = false,
     onArtistClick,
     onAlbumClick,
     onTrackClick,
@@ -123,6 +134,11 @@
     onToggleNormalization,
     controlsDisabled = false,
     explicit = false,
+    qconnectSessionSnapshot = null,
+    onToggleQconnectConnection,
+    qconnectBusy = false,
+    showQconnectDevButton = false,
+    volumeLocked = false,
   }: Props = $props();
 
   let progressRef: HTMLDivElement;
@@ -379,11 +395,19 @@
             </div>
           </div>
 
-          <div class="quality-indicator">
-            <QualityBadge {quality} {bitDepth} {samplingRate} {originalBitDepth} {originalSamplingRate} {format} />
-            <div class="audio-badges-row">
-              <AudioOutputBadges {samplingRate} />
+          <div class="badges-group">
+            <div class="quality-indicator">
+              <QualityBadge {quality} {bitDepth} {samplingRate} {originalBitDepth} {originalSamplingRate} {format} />
+              <div class="audio-badges-row">
+                <AudioOutputBadges {samplingRate} />
+              </div>
             </div>
+            <QconnectBadge
+              connected={isQobuzConnectConnected}
+              sessionSnapshot={qconnectSessionSnapshot}
+              onToggleConnection={onToggleQconnectConnection ?? (() => {})}
+              busy={qconnectBusy}
+            />
           </div>
         </div>
       {:else}
@@ -414,6 +438,17 @@
       >
         <Cast size={16} />
       </button>
+
+      {#if showQconnectDevButton}
+      <button
+        class="control-btn"
+        class:qconnect-active={isQobuzConnectConnected}
+        onclick={onQobuzConnect}
+        title={isQobuzConnectConnected ? $translateStore('player.qobuzConnectManage') : $translateStore('player.qobuzConnect')}
+      >
+        <span class="qconnect-icon" aria-hidden="true"></span>
+      </button>
+      {/if}
 
       <button
         class="control-btn"
@@ -456,53 +491,78 @@
       </button>
 
       <!-- Volume Control -->
-      <div class="volume-control">
-        <div class="volume-value" class:visible={isDraggingVolume}>{volume}</div>
-        <button
-          class="control-btn volume-btn"
-          onclick={() => toggleMute()}
-          title={volume === 0 ? $translateStore('player.unmute') : $translateStore('player.mute')}
-        >
-          {#if volume === 0}
-            <VolumeX size={16} />
-          {:else if volume < 50}
-            <Volume1 size={16} />
-          {:else}
+      <div class="volume-control" class:volume-locked={volumeLocked}>
+        {#if volumeLocked}
+          <button
+            class="control-btn volume-btn"
+            title={$translateStore('player.volumeLockedHw')}
+            disabled
+          >
             <Volume2 size={16} />
-          {/if}
-        </button>
+          </button>
 
-        <div
-          class="volume-slider"
-          bind:this={volumeRef}
-          onmousedown={handleVolumeMouseDown}
-          role="slider"
-          tabindex="0"
-          aria-valuenow={volume}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div class="volume-track">
-            <div class="volume-fill" style="width: {volume}%"></div>
+          <div
+            class="volume-slider"
+            role="slider"
+            tabindex="-1"
+            aria-valuenow={100}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-disabled="true"
+          >
+            <div class="volume-track">
+              <div class="volume-fill" style="width: 100%"></div>
+            </div>
+            <div class="volume-thumb" style="left: 100%"></div>
           </div>
-          <div class="volume-thumb" style="left: {volume}%"></div>
-        </div>
+        {:else}
+          <div class="volume-value" class:visible={isDraggingVolume}>{volume}</div>
+          <button
+            class="control-btn volume-btn"
+            onclick={() => toggleMute()}
+            title={volume === 0 ? $translateStore('player.unmute') : $translateStore('player.mute')}
+          >
+            {#if volume === 0}
+              <VolumeX size={16} />
+            {:else if volume < 50}
+              <Volume1 size={16} />
+            {:else}
+              <Volume2 size={16} />
+            {/if}
+          </button>
 
-        <button
-          class="control-btn volume-step-btn"
-          onclick={() => onVolumeChange?.(Math.max(0, volume - 5))}
-          title={$translateStore('player.volumeDown')}
-        >
-          <Minus size={14} />
-        </button>
+          <div
+            class="volume-slider"
+            bind:this={volumeRef}
+            onmousedown={handleVolumeMouseDown}
+            role="slider"
+            tabindex="0"
+            aria-valuenow={volume}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div class="volume-track">
+              <div class="volume-fill" style="width: {volume}%"></div>
+            </div>
+            <div class="volume-thumb" style="left: {volume}%"></div>
+          </div>
 
-        <button
-          class="control-btn volume-step-btn"
-          onclick={() => onVolumeChange?.(Math.min(100, volume + 5))}
-          title={$translateStore('player.volumeUp')}
-        >
-          <Plus size={14} />
-        </button>
+          <button
+            class="control-btn volume-step-btn"
+            onclick={() => onVolumeChange?.(Math.max(0, volume - 5))}
+            title={$translateStore('player.volumeDown')}
+          >
+            <Minus size={14} />
+          </button>
+
+          <button
+            class="control-btn volume-step-btn"
+            onclick={() => onVolumeChange?.(Math.min(100, volume + 5))}
+            title={$translateStore('player.volumeUp')}
+          >
+            <Plus size={14} />
+          </button>
+        {/if}
       </div>
 
       <!-- Queue Button (far right) -->
@@ -664,6 +724,11 @@
     animation: cast-pulse 2s ease-in-out infinite;
   }
 
+  .control-btn.qconnect-active {
+    color: var(--accent-primary, #6366f1);
+    animation: qconnect-pulse 2s ease-in-out infinite;
+  }
+
   .control-btn.disabled {
     color: var(--text-disabled);
     opacity: 0.5;
@@ -680,6 +745,34 @@
     50% { opacity: 0.6; }
   }
 
+  @keyframes qconnect-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  .qconnect-icon {
+    display: block;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    mask-image: url('/qobuz-logo.svg');
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    -webkit-mask-image: url('/qobuz-logo.svg');
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+  }
+
+  /* Section Separator */
+  .section-separator {
+    width: 1px;
+    height: 20px;
+    background: var(--border-subtle);
+    margin: 0 8px;
+    flex-shrink: 0;
+  }
   /* Queue Button & Icon */
   .queue-btn {
     width: 32px;
@@ -928,6 +1021,13 @@
     margin: 0;
   }
 
+  .badges-group {
+    display: flex;
+    align-items: stretch;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+
   .audio-badges-row {
     display: flex;
     height: 20px;
@@ -1016,5 +1116,10 @@
   .volume-value.visible {
     opacity: 1;
     transform: translateY(0);
+  }
+
+  .volume-locked {
+    opacity: 0.5;
+    pointer-events: none;
   }
 </style>

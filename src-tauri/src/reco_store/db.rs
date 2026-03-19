@@ -946,8 +946,7 @@ impl RecoStoreDb {
 
         let mut artists = Vec::new();
         for row in rows {
-            artists
-                .push(row.map_err(|e| format!("Failed to read known artist name row: {}", e))?);
+            artists.push(row.map_err(|e| format!("Failed to read known artist name row: {}", e))?);
         }
         Ok(artists)
     }
@@ -975,7 +974,11 @@ impl RecoStoreDb {
     }
 
     /// Dismiss an artist for a specific tag (genre context)
-    pub fn dismiss_discovery_artist(&self, tag: &str, artist_name_normalized: &str) -> Result<(), String> {
+    pub fn dismiss_discovery_artist(
+        &self,
+        tag: &str,
+        artist_name_normalized: &str,
+    ) -> Result<(), String> {
         let created_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)

@@ -677,7 +677,8 @@ fn get_home_seeds_internal(
     let recently_played_album_ids = if has_scores {
         let recent_fresh = db.get_recent_album_ids(4)?;
         let scored = db.get_scored_album_ids("all", limit_recent_albums + 4)?;
-        let merged = merge_unique_preserve_order(recent_fresh, scored, limit_recent_albums as usize);
+        let merged =
+            merge_unique_preserve_order(recent_fresh, scored, limit_recent_albums as usize);
         if merged.is_empty() {
             db.get_recent_album_ids(limit_recent_albums)?
         } else {
@@ -690,7 +691,8 @@ fn get_home_seeds_internal(
     let continue_listening_track_ids = if has_scores {
         let recent_fresh = db.get_recent_track_ids(4)?;
         let scored = db.get_scored_track_ids("all", limit_continue_tracks + 4)?;
-        let merged = merge_unique_preserve_order(recent_fresh, scored, limit_continue_tracks as usize);
+        let merged =
+            merge_unique_preserve_order(recent_fresh, scored, limit_continue_tracks as usize);
         if merged.is_empty() {
             db.get_recent_track_ids(limit_continue_tracks)?
         } else {
@@ -701,7 +703,8 @@ fn get_home_seeds_internal(
     };
 
     let top_artist_ids = if has_scores {
-        let scored: Vec<TopArtistSeed> = db.get_scored_artist_scores("all", limit_top_artists)?
+        let scored: Vec<TopArtistSeed> = db
+            .get_scored_artist_scores("all", limit_top_artists)?
             .into_iter()
             .map(|(artist_id, score)| TopArtistSeed {
                 artist_id,
@@ -827,8 +830,12 @@ pub async fn reco_get_home_resolved(
         &cache_state,
     );
 
-    let (recently_played_albums, resolved_favorites, all_tracks, top_artists) =
-        tokio::try_join!(recent_albums_fut, favorite_albums_fut, tracks_fut, artists_fut)?;
+    let (recently_played_albums, resolved_favorites, all_tracks, top_artists) = tokio::try_join!(
+        recent_albums_fut,
+        favorite_albums_fut,
+        tracks_fut,
+        artists_fut
+    )?;
 
     // Build track lookup
     let track_map: HashMap<u64, &TrackDisplayMeta> =
@@ -914,11 +921,9 @@ pub async fn reco_get_home_resolved(
                 let _permit = sem.acquire().await.ok()?;
                 let artist = {
                     let c = client.read().await;
-                    c.get_artist_with_pagination_and_locale(
-                        artist_id, true, Some(25), None, None,
-                    )
-                    .await
-                    .ok()?
+                    c.get_artist_with_pagination_and_locale(artist_id, true, Some(25), None, None)
+                        .await
+                        .ok()?
                 };
                 let albums = artist.albums?;
                 let mut results: Vec<AlbumCardMeta> = Vec::new();

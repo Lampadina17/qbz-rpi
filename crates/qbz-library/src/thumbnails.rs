@@ -20,8 +20,9 @@ pub fn get_thumbnails_dir() -> Result<PathBuf, LibraryError> {
 
     // Create directory if it doesn't exist
     if !thumbnails_dir.exists() {
-        fs::create_dir_all(&thumbnails_dir)
-            .map_err(|e| LibraryError::Other(format!("Failed to create thumbnails directory: {}", e)))?;
+        fs::create_dir_all(&thumbnails_dir).map_err(|e| {
+            LibraryError::Other(format!("Failed to create thumbnails directory: {}", e))
+        })?;
     }
 
     Ok(thumbnails_dir)
@@ -135,8 +136,9 @@ pub fn clear_thumbnails() -> Result<(), LibraryError> {
     if thumbnails_dir.exists() {
         fs::remove_dir_all(&thumbnails_dir)
             .map_err(|e| LibraryError::Other(format!("Failed to clear thumbnails: {}", e)))?;
-        fs::create_dir_all(&thumbnails_dir)
-            .map_err(|e| LibraryError::Other(format!("Failed to recreate thumbnails directory: {}", e)))?;
+        fs::create_dir_all(&thumbnails_dir).map_err(|e| {
+            LibraryError::Other(format!("Failed to recreate thumbnails directory: {}", e))
+        })?;
     }
 
     Ok(())

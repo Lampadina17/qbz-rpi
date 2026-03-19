@@ -38,7 +38,11 @@ impl PaletteColor {
 
     /// HSL saturation in [0.0, 1.0].
     pub fn saturation(&self) -> f64 {
-        let (r, g, b) = (self.r as f64 / 255.0, self.g as f64 / 255.0, self.b as f64 / 255.0);
+        let (r, g, b) = (
+            self.r as f64 / 255.0,
+            self.g as f64 / 255.0,
+            self.b as f64 / 255.0,
+        );
         let max = r.max(g).max(b);
         let min = r.min(g).min(b);
         let delta = max - min;
@@ -70,7 +74,11 @@ impl PaletteColor {
 
     /// Convert to HSL (h in [0, 360), s and l in [0, 1]).
     pub fn to_hsl(&self) -> (f64, f64, f64) {
-        let (r, g, b) = (self.r as f64 / 255.0, self.g as f64 / 255.0, self.b as f64 / 255.0);
+        let (r, g, b) = (
+            self.r as f64 / 255.0,
+            self.g as f64 / 255.0,
+            self.b as f64 / 255.0,
+        );
         let max = r.max(g).max(b);
         let min = r.min(g).min(b);
         let l = (max + min) / 2.0;

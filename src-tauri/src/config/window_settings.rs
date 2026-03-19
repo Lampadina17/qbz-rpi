@@ -64,9 +64,18 @@ impl WindowSettingsStore {
         .map_err(|e| format!("Failed to insert default window settings: {}", e))?;
 
         // Migrations: add window size columns on existing DBs (errors ignored when column exists)
-        let _ = conn.execute("ALTER TABLE window_settings ADD COLUMN window_width REAL NOT NULL DEFAULT 1280.0", []);
-        let _ = conn.execute("ALTER TABLE window_settings ADD COLUMN window_height REAL NOT NULL DEFAULT 800.0", []);
-        let _ = conn.execute("ALTER TABLE window_settings ADD COLUMN is_maximized INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute(
+            "ALTER TABLE window_settings ADD COLUMN window_width REAL NOT NULL DEFAULT 1280.0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE window_settings ADD COLUMN window_height REAL NOT NULL DEFAULT 800.0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE window_settings ADD COLUMN is_maximized INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
 
         info!("[WindowSettings] Database initialized");
 
@@ -101,7 +110,8 @@ impl WindowSettingsStore {
                     } else {
                         log::warn!(
                             "[WindowSettings] Corrupt size in DB: {}x{}, using defaults",
-                            window_width, window_height
+                            window_width,
+                            window_height
                         );
                         (defaults.window_width, defaults.window_height)
                     };
@@ -131,7 +141,8 @@ impl WindowSettingsStore {
         if !is_valid_window_size(width, height) {
             log::warn!(
                 "[WindowSettings] Ignoring invalid window size: {}x{}",
-                width, height
+                width,
+                height
             );
             return Ok(());
         }
@@ -225,9 +236,12 @@ impl WindowSettingsState {
 fn is_valid_window_size(width: f64, height: f64) -> bool {
     const MIN: f64 = 200.0;
     const MAX: f64 = 32767.0;
-    width.is_finite() && height.is_finite()
-        && width >= MIN && width <= MAX
-        && height >= MIN && height <= MAX
+    width.is_finite()
+        && height.is_finite()
+        && width >= MIN
+        && width <= MAX
+        && height >= MIN
+        && height <= MAX
 }
 
 // Tauri commands

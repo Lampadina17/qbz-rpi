@@ -154,6 +154,11 @@ const SEEK_SETTLE_TOLERANCE_SECS = 1;
 // Callbacks for track advancement (set by consumer)
 let onTrackEnded: (() => Promise<void>) | null = null;
 let onResumeFromStop: (() => Promise<void>) | null = null;
+let onTogglePlayOverride: (() => Promise<boolean>) | null = null;
+
+// Remote control mode: when active, external service (QConnect) controls playback.
+// Disables gapless interception, auto-advance, and resume-from-stop in the event handler.
+let remoteControlMode = false;
 
 // Gapless: callback to get the next track ID for pre-queuing
 let gaplessGetNextTrackId: (() => number | null) | null = null;
@@ -343,6 +348,18 @@ export function hasPendingSessionRestore(): boolean {
  * Toggle play/pause
  */
 export async function togglePlay(): Promise<void> {
+  if (onTogglePlayOverride) {
+    try {
+      const handled = await onTogglePlayOverride();
+      if (handled) {
+        return;
+      }
+    } catch (err) {
+      console.error('Remote toggle playback override failed:', err);
+      return;
+    }
+  }
+
   if (!currentTrack) {
     // After stop, try to resume from the queue's current track
     if (onResumeFromStop) {
@@ -397,7 +414,8 @@ export async function togglePlay(): Promise<void> {
           // Qobuz track - use v2_play_track
           await invoke('v2_play_track', {
             trackId: currentTrack.id,
-            quality: getStreamingQuality()
+            quality: getStreamingQuality(),
+            durationSecs: currentTrack.duration ? Math.round(currentTrack.duration) : null
           });
         }
 
@@ -544,6 +562,16 @@ export function setOnResumeFromStop(callback: () => Promise<void>): void {
 }
 
 /**
+ * Optional transport handoff for play/pause.
+ * Returns true when the action was handled outside the local player.
+ */
+export function setOnTogglePlayOverride(
+  callback: (() => Promise<boolean>) | null
+): void {
+  onTogglePlayOverride = callback;
+}
+
+/**
  * Set callback for when track ends (for auto-advance)
  */
 export function setOnTrackEnded(callback: () => Promise<void>): void {
@@ -567,6 +595,15 @@ export function setOnGaplessTransition(callback: (trackId: number) => Promise<vo
 }
 
 /**
+ * Enable/disable remote control mode (e.g. QConnect renderer).
+ * When active, gapless interception and auto-advance are disabled
+ * so the external service controls track transitions.
+ */
+export function setRemoteControlMode(active: boolean): void {
+  remoteControlMode = active;
+}
+
+/**
  * Handle playback event from backend
  */
 async function handlePlaybackEvent(event: PlaybackEvent): Promise<void> {
@@ -580,7 +617,9 @@ async function handlePlaybackEvent(event: PlaybackEvent): Promise<void> {
 
   // Gapless transition: backend changed track_id because gapless playback advanced
   // Handle this BEFORE the external track change handler to prevent stale queue lookups
-  const isGaplessTransition = event.track_id !== 0
+  // Skip when remote control mode is active — external service controls transitions.
+  const isGaplessTransition = !remoteControlMode
+    && event.track_id !== 0
     && currentTrack
     && event.track_id !== currentTrack.id
     && event.is_playing
@@ -654,6 +693,7 @@ async function handlePlaybackEvent(event: PlaybackEvent): Promise<void> {
   // a final same-track frame at duration. Treat as natural end only when
   // previous progress was already at the tail and playback was active.
   if (
+    !remoteControlMode &&
     event.track_id === 0 &&
     prevTrackId !== 0 &&
     prevDuration > 0 &&
@@ -758,6 +798,7 @@ async function handlePlaybackEvent(event: PlaybackEvent): Promise<void> {
 
     // Check if track ended - auto-advance to next
     if (
+      !remoteControlMode &&
       event.duration > 0 &&
       event.position >= event.duration - 1 &&
       !event.is_playing &&
@@ -859,6 +900,7 @@ export function reset(): void {
   seekRequestInFlight = false;
   seekTargetPosition = null;
   seekGuardUntilMs = 0;
+  onTogglePlayOverride = null;
   stopPolling();
   currentTrack = null;
   isPlaying = false;

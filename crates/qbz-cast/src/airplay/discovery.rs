@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use mdns_sd::{ServiceDaemon, ServiceEvent};
@@ -59,12 +59,12 @@ impl AirPlayDiscovery {
         let mdns = ServiceDaemon::new()
             .map_err(|e| AirPlayError::Discovery(format!("Failed to create mDNS daemon: {}", e)))?;
 
-        let raop_rx = mdns
-            .browse(SERVICE_RAOP)
-            .map_err(|e| AirPlayError::Discovery(format!("Failed to browse RAOP services: {}", e)))?;
-        let airplay_rx = mdns
-            .browse(SERVICE_AIRPLAY)
-            .map_err(|e| AirPlayError::Discovery(format!("Failed to browse AirPlay services: {}", e)))?;
+        let raop_rx = mdns.browse(SERVICE_RAOP).map_err(|e| {
+            AirPlayError::Discovery(format!("Failed to browse RAOP services: {}", e))
+        })?;
+        let airplay_rx = mdns.browse(SERVICE_AIRPLAY).map_err(|e| {
+            AirPlayError::Discovery(format!("Failed to browse AirPlay services: {}", e))
+        })?;
 
         self.running.store(true, Ordering::SeqCst);
 
@@ -76,12 +76,8 @@ impl AirPlayDiscovery {
             state.clone(),
             running.clone(),
         ));
-        self.handles.push(spawn_receiver(
-            "airplay",
-            airplay_rx,
-            state,
-            running,
-        ));
+        self.handles
+            .push(spawn_receiver("airplay", airplay_rx, state, running));
 
         self.daemon = Some(mdns);
         Ok(())
@@ -150,8 +146,8 @@ fn spawn_receiver(
                         .unwrap_or("Unknown")
                         .to_string();
                     let requires_password = parse_password_required(&info);
-                    let ip = pick_ip(info.get_addresses())
-                        .unwrap_or_else(|| "127.0.0.1".to_string());
+                    let ip =
+                        pick_ip(info.get_addresses()).unwrap_or_else(|| "127.0.0.1".to_string());
 
                     let device = DiscoveredAirPlayDevice {
                         id: id.clone(),

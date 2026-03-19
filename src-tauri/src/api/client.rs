@@ -187,9 +187,9 @@ impl QobuzClient {
         use reqwest::header::{HeaderMap, HeaderValue};
 
         let tokens = self.tokens.read().await;
-        let tokens = tokens.as_ref().ok_or_else(|| {
-            ApiError::BundleExtractionError("Client not initialized".to_string())
-        })?;
+        let tokens = tokens
+            .as_ref()
+            .ok_or_else(|| ApiError::BundleExtractionError("Client not initialized".to_string()))?;
         let app_id = tokens.app_id.clone();
         let private_key = tokens.private_key.clone().ok_or_else(|| {
             ApiError::BundleExtractionError(
@@ -248,9 +248,8 @@ impl QobuzClient {
         );
         auth_headers.insert(
             "X-User-Auth-Token",
-            HeaderValue::from_str(&token).map_err(|_| {
-                ApiError::AuthenticationError("Invalid OAuth token format".into())
-            })?,
+            HeaderValue::from_str(&token)
+                .map_err(|_| ApiError::AuthenticationError("Invalid OAuth token format".into()))?,
         );
 
         let login_resp = self
@@ -304,9 +303,8 @@ impl QobuzClient {
         );
         headers.insert(
             "X-User-Auth-Token",
-            HeaderValue::from_str(token).map_err(|_| {
-                ApiError::AuthenticationError("Invalid token format".into())
-            })?,
+            HeaderValue::from_str(token)
+                .map_err(|_| ApiError::AuthenticationError("Invalid token format".into()))?,
         );
 
         log::info!("[OAuth] Restoring session from saved token");
@@ -632,10 +630,7 @@ impl QobuzClient {
     }
 
     /// Get album suggestions (similar albums) from /album/suggest
-    pub async fn get_album_suggest(
-        &self,
-        album_id: &str,
-    ) -> Result<AlbumSuggestResponse> {
+    pub async fn get_album_suggest(&self, album_id: &str) -> Result<AlbumSuggestResponse> {
         let url = endpoints::build_url(paths::ALBUM_SUGGEST);
         let http_response = self
             .http
@@ -1234,10 +1229,7 @@ impl QobuzClient {
     }
 
     /// Fetch radio tracks for an album (`/radio/album`).
-    pub async fn get_radio_album(
-        &self,
-        album_id: &str,
-    ) -> Result<RadioResponse> {
+    pub async fn get_radio_album(&self, album_id: &str) -> Result<RadioResponse> {
         let url = endpoints::build_url(paths::RADIO_ALBUM);
 
         let http_response = self
@@ -1268,10 +1260,7 @@ impl QobuzClient {
     }
 
     /// Fetch radio tracks for an artist (`/radio/artist`).
-    pub async fn get_radio_artist(
-        &self,
-        artist_id: &str,
-    ) -> Result<RadioResponse> {
+    pub async fn get_radio_artist(&self, artist_id: &str) -> Result<RadioResponse> {
         let url = endpoints::build_url(paths::RADIO_ARTIST);
 
         let http_response = self
@@ -1302,10 +1291,7 @@ impl QobuzClient {
     }
 
     /// Fetch radio tracks for a track (`/radio/track`).
-    pub async fn get_radio_track(
-        &self,
-        track_id: &str,
-    ) -> Result<RadioResponse> {
+    pub async fn get_radio_track(&self, track_id: &str) -> Result<RadioResponse> {
         let url = endpoints::build_url(paths::RADIO_TRACK);
 
         let http_response = self
@@ -1474,22 +1460,19 @@ impl QobuzClient {
     }
 
     /// Get label explore (discover more labels)
-    pub async fn get_label_explore(
-        &self,
-        limit: u32,
-        offset: u32,
-    ) -> Result<LabelExploreResponse> {
+    pub async fn get_label_explore(&self, limit: u32, offset: u32) -> Result<LabelExploreResponse> {
         let url = endpoints::build_url(paths::LABEL_EXPLORE);
 
-        log::debug!("[API] get_label_explore(limit={}, offset={})", limit, offset);
+        log::debug!(
+            "[API] get_label_explore(limit={}, offset={})",
+            limit,
+            offset
+        );
         let response: serde_json::Value = self
             .http
             .get(&url)
             .headers(self.api_headers().await?)
-            .query(&[
-                ("limit", limit.to_string()),
-                ("offset", offset.to_string()),
-            ])
+            .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
             .send()
             .await?
             .json()
@@ -1682,7 +1665,10 @@ impl QobuzClient {
     }
 
     /// Get all purchases for a single type by paginating through Qobuz purchases API.
-    pub async fn get_user_purchases_all_typed(&self, purchase_type: &str) -> Result<PurchaseResponse> {
+    pub async fn get_user_purchases_all_typed(
+        &self,
+        purchase_type: &str,
+    ) -> Result<PurchaseResponse> {
         let page_limit = 500u32;
         let mut offset = 0u32;
 
@@ -1740,13 +1726,21 @@ impl QobuzClient {
         Ok(PurchaseResponse {
             albums: SearchResultsPage {
                 items: all_albums,
-                total: if purchase_type == "albums" { final_total } else { 0 },
+                total: if purchase_type == "albums" {
+                    final_total
+                } else {
+                    0
+                },
                 offset: 0,
                 limit: page_limit,
             },
             tracks: SearchResultsPage {
                 items: all_tracks,
-                total: if purchase_type == "tracks" { final_total } else { 0 },
+                total: if purchase_type == "tracks" {
+                    final_total
+                } else {
+                    0
+                },
                 offset: 0,
                 limit: page_limit,
             },
@@ -2071,6 +2065,34 @@ impl QobuzClient {
     /// Delete a playlist
     pub async fn delete_playlist(&self, playlist_id: u64) -> Result<()> {
         let url = endpoints::build_url(paths::PLAYLIST_DELETE);
+
+        self.http
+            .get(&url)
+            .headers(self.authenticated_headers().await?)
+            .query(&[("playlist_id", playlist_id.to_string())])
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    /// Subscribe to a Qobuz playlist (follow it in the user's Qobuz library)
+    pub async fn subscribe_playlist(&self, playlist_id: u64) -> Result<()> {
+        let url = endpoints::build_url(paths::PLAYLIST_SUBSCRIBE);
+
+        self.http
+            .get(&url)
+            .headers(self.authenticated_headers().await?)
+            .query(&[("playlist_id", playlist_id.to_string())])
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    /// Unsubscribe from a Qobuz playlist
+    pub async fn unsubscribe_playlist(&self, playlist_id: u64) -> Result<()> {
+        let url = endpoints::build_url(paths::PLAYLIST_UNSUBSCRIBE);
 
         self.http
             .get(&url)

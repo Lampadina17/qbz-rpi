@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
-use crate::error::{IntegrationError, IntegrationResult};
 use super::models::*;
+use crate::error::{IntegrationError, IntegrationResult};
 
 /// Proxy URL for MusicBrainz requests
 const MUSICBRAINZ_PROXY_URL: &str = "https://qbz-api-proxy.blitzkriegfc.workers.dev/musicbrainz";
@@ -144,7 +144,10 @@ impl MusicBrainzClient {
     }
 
     /// Search recordings by ISRC
-    pub async fn search_recording_by_isrc(&self, isrc: &str) -> IntegrationResult<RecordingSearchResponse> {
+    pub async fn search_recording_by_isrc(
+        &self,
+        isrc: &str,
+    ) -> IntegrationResult<RecordingSearchResponse> {
         if !self.is_enabled().await {
             return Err(IntegrationError::ServiceUnavailable(
                 "MusicBrainz integration is disabled".into(),
@@ -174,7 +177,11 @@ impl MusicBrainzClient {
     }
 
     /// Search artists by name
-    pub async fn search_artist(&self, name: &str, limit: u32) -> IntegrationResult<ArtistSearchResponse> {
+    pub async fn search_artist(
+        &self,
+        name: &str,
+        limit: u32,
+    ) -> IntegrationResult<ArtistSearchResponse> {
         if !self.is_enabled().await {
             return Err(IntegrationError::ServiceUnavailable(
                 "MusicBrainz integration is disabled".into(),
@@ -220,7 +227,11 @@ impl MusicBrainzClient {
         if let Some(isrc) = isrc {
             let response = self.search_recording_by_isrc(isrc).await?;
             if let Some(recording) = response.recordings.first() {
-                let confidence = if recording.isrcs.as_ref().map_or(false, |isrcs| isrcs.contains(&isrc.to_string())) {
+                let confidence = if recording
+                    .isrcs
+                    .as_ref()
+                    .map_or(false, |isrcs| isrcs.contains(&isrc.to_string()))
+                {
                     MatchConfidence::Exact
                 } else {
                     MatchConfidence::from_score(recording.score)
@@ -275,7 +286,11 @@ impl MusicBrainzClient {
     // ============ Extended API Methods ============
 
     /// Search recordings by title and artist
-    pub async fn search_recording(&self, title: &str, artist: &str) -> IntegrationResult<RecordingSearchResponse> {
+    pub async fn search_recording(
+        &self,
+        title: &str,
+        artist: &str,
+    ) -> IntegrationResult<RecordingSearchResponse> {
         self.check_enabled().await?;
         self.rate_limiter.wait().await;
 
@@ -285,7 +300,11 @@ impl MusicBrainzClient {
             Self::escape_query(title),
             Self::escape_query(artist)
         );
-        let url = format!("{}/recording?query={}&fmt=json&limit=5", base, urlencoding::encode(&query));
+        let url = format!(
+            "{}/recording?query={}&fmt=json&limit=5",
+            base,
+            urlencoding::encode(&query)
+        );
 
         let response = self.client.get(&url).send().await?;
         self.check_response(&response).await;
@@ -294,7 +313,10 @@ impl MusicBrainzClient {
     }
 
     /// Get artist details with relationships and tags
-    pub async fn get_artist_with_relations(&self, mbid: &str) -> IntegrationResult<ArtistFullResponse> {
+    pub async fn get_artist_with_relations(
+        &self,
+        mbid: &str,
+    ) -> IntegrationResult<ArtistFullResponse> {
         self.check_enabled().await?;
         self.rate_limiter.wait().await;
 
@@ -330,11 +352,18 @@ impl MusicBrainzClient {
             .filter(|tag| tag.count.unwrap_or(0) > 0)
             .collect();
         tags.sort_by(|a, b| b.count.unwrap_or(0).cmp(&a.count.unwrap_or(0)));
-        Ok(tags.into_iter().map(|tag| tag.name.to_lowercase()).collect())
+        Ok(tags
+            .into_iter()
+            .map(|tag| tag.name.to_lowercase())
+            .collect())
     }
 
     /// Search artists by tag (genre)
-    pub async fn search_artists_by_tag(&self, tag: &str, limit: usize) -> IntegrationResult<ArtistSearchResponse> {
+    pub async fn search_artists_by_tag(
+        &self,
+        tag: &str,
+        limit: usize,
+    ) -> IntegrationResult<ArtistSearchResponse> {
         self.check_enabled().await?;
         self.rate_limiter.wait().await;
 
@@ -343,7 +372,9 @@ impl MusicBrainzClient {
         let query = format!("tag:\"{}\"", Self::escape_query(tag));
         let url = format!(
             "{}/artist?query={}&fmt=json&limit={}",
-            base, urlencoding::encode(&query), limit
+            base,
+            urlencoding::encode(&query),
+            limit
         );
 
         let response = self.client.get(&url).send().await?;
@@ -373,7 +404,10 @@ impl MusicBrainzClient {
         );
         let url = format!(
             "{}/artist?query={}&fmt=json&limit={}&offset={}",
-            base, urlencoding::encode(&query), limit, offset
+            base,
+            urlencoding::encode(&query),
+            limit,
+            offset
         );
 
         let response = self.client.get(&url).send().await?;
@@ -382,12 +416,18 @@ impl MusicBrainzClient {
     }
 
     /// Search releases by barcode (UPC/EAN)
-    pub async fn search_release_by_barcode(&self, barcode: &str) -> IntegrationResult<ReleaseSearchResponse> {
+    pub async fn search_release_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> IntegrationResult<ReleaseSearchResponse> {
         self.check_enabled().await?;
         self.rate_limiter.wait().await;
 
         let base = self.base_url().await;
-        let url = format!("{}/release?query=barcode:{}&fmt=json&limit=5", base, barcode);
+        let url = format!(
+            "{}/release?query=barcode:{}&fmt=json&limit=5",
+            base, barcode
+        );
 
         let response = self.client.get(&url).send().await?;
         let response = self.handle_response_status(response).await?;
@@ -395,7 +435,11 @@ impl MusicBrainzClient {
     }
 
     /// Search releases by title and artist
-    pub async fn search_release(&self, title: &str, artist: &str) -> IntegrationResult<ReleaseSearchResponse> {
+    pub async fn search_release(
+        &self,
+        title: &str,
+        artist: &str,
+    ) -> IntegrationResult<ReleaseSearchResponse> {
         self.search_releases_extended(title, artist, None, 5).await
     }
 
@@ -428,7 +472,9 @@ impl MusicBrainzClient {
         let limit = limit.min(25).max(1);
         let url = format!(
             "{}/release?query={}&fmt=json&limit={}",
-            base, urlencoding::encode(&query), limit
+            base,
+            urlencoding::encode(&query),
+            limit
         );
 
         let response = self.client.get(&url).send().await?;
@@ -437,7 +483,10 @@ impl MusicBrainzClient {
     }
 
     /// Get full release details including tracks
-    pub async fn get_release_with_tracks(&self, release_id: &str) -> IntegrationResult<ReleaseFullResponse> {
+    pub async fn get_release_with_tracks(
+        &self,
+        release_id: &str,
+    ) -> IntegrationResult<ReleaseFullResponse> {
         self.check_enabled().await?;
         self.rate_limiter.wait().await;
 
@@ -475,7 +524,11 @@ impl MusicBrainzClient {
     }
 
     /// Search for an area by name
-    pub async fn search_area(&self, name: &str, area_type: Option<&str>) -> IntegrationResult<AreaSearchResponse> {
+    pub async fn search_area(
+        &self,
+        name: &str,
+        area_type: Option<&str>,
+    ) -> IntegrationResult<AreaSearchResponse> {
         self.check_enabled().await?;
         self.rate_limiter.wait().await;
 
@@ -490,7 +543,11 @@ impl MusicBrainzClient {
             format!("area:\"{}\"", Self::escape_query(name))
         };
 
-        let url = format!("{}/area?query={}&fmt=json&limit=5", base, urlencoding::encode(&query));
+        let url = format!(
+            "{}/area?query={}&fmt=json&limit=5",
+            base,
+            urlencoding::encode(&query)
+        );
 
         let response = self.client.get(&url).send().await?;
         let response = self.handle_response_status(response).await?;
@@ -498,7 +555,10 @@ impl MusicBrainzClient {
     }
 
     /// Look up an area and its parent relationships
-    pub async fn get_area_with_relations(&self, area_id: &str) -> IntegrationResult<AreaDetailResponse> {
+    pub async fn get_area_with_relations(
+        &self,
+        area_id: &str,
+    ) -> IntegrationResult<AreaDetailResponse> {
         self.check_enabled().await?;
         self.rate_limiter.wait().await;
 
@@ -511,7 +571,10 @@ impl MusicBrainzClient {
     }
 
     /// Resolve a city area to its parent subdivision (state/region)
-    pub async fn resolve_parent_subdivision(&self, area_id: &str) -> IntegrationResult<Option<(String, String)>> {
+    pub async fn resolve_parent_subdivision(
+        &self,
+        area_id: &str,
+    ) -> IntegrationResult<Option<(String, String)>> {
         let mut current_id = area_id.to_string();
         let mut path: Vec<String> = Vec::new();
         let max_hops = 5;
@@ -539,7 +602,10 @@ impl MusicBrainzClient {
             }
 
             let has_country_parent = parents.iter().any(|p| {
-                p.area_type.as_deref().map(|t| t.eq_ignore_ascii_case("country")).unwrap_or(false)
+                p.area_type
+                    .as_deref()
+                    .map(|t| t.eq_ignore_ascii_case("country"))
+                    .unwrap_or(false)
             });
 
             if has_country_parent {
@@ -559,7 +625,10 @@ impl MusicBrainzClient {
             let next = parents
                 .iter()
                 .find(|p| {
-                    p.area_type.as_deref().map(|t| t.eq_ignore_ascii_case("subdivision")).unwrap_or(false)
+                    p.area_type
+                        .as_deref()
+                        .map(|t| t.eq_ignore_ascii_case("subdivision"))
+                        .unwrap_or(false)
                 })
                 .or_else(|| {
                     parents.iter().find(|p| {
@@ -570,8 +639,12 @@ impl MusicBrainzClient {
                 .or_else(|| parents.first());
 
             match next {
-                Some(parent) => { current_id = parent.id.clone(); }
-                None => { return Ok(None); }
+                Some(parent) => {
+                    current_id = parent.id.clone();
+                }
+                None => {
+                    return Ok(None);
+                }
             }
         }
 
@@ -594,7 +667,10 @@ impl MusicBrainzClient {
         // Placeholder for response logging/metrics
     }
 
-    async fn handle_response_status(&self, response: reqwest::Response) -> IntegrationResult<reqwest::Response> {
+    async fn handle_response_status(
+        &self,
+        response: reqwest::Response,
+    ) -> IntegrationResult<reqwest::Response> {
         if response.status().is_success() {
             return Ok(response);
         }
@@ -603,7 +679,10 @@ impl MusicBrainzClient {
             return Err(IntegrationError::RateLimited(60));
         }
         let text = response.text().await.unwrap_or_default();
-        Err(IntegrationError::internal(format!("MusicBrainz API error {}: {}", status, text)))
+        Err(IntegrationError::internal(format!(
+            "MusicBrainz API error {}: {}",
+            status, text
+        )))
     }
 
     /// Escape special characters in Lucene queries

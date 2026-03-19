@@ -142,7 +142,8 @@ impl ListenBrainzCache {
         isrc: Option<&str>,
         duration_ms: Option<u64>,
     ) -> Result<i64, String> {
-        let artist_mbids_json = artist_mbids.map(|ids| serde_json::to_string(ids).unwrap_or_default());
+        let artist_mbids_json =
+            artist_mbids.map(|ids| serde_json::to_string(ids).unwrap_or_default());
 
         self.conn
             .execute(
@@ -183,7 +184,8 @@ impl ListenBrainzCache {
         let listens = stmt
             .query_map([limit], |row| {
                 let artist_mbids_json: Option<String> = row.get(7)?;
-                let artist_mbids = artist_mbids_json.and_then(|json| serde_json::from_str(&json).ok());
+                let artist_mbids =
+                    artist_mbids_json.and_then(|json| serde_json::from_str(&json).ok());
 
                 Ok(QueuedListen {
                     id: row.get(0)?,
@@ -241,7 +243,8 @@ impl ListenBrainzCache {
             .iter()
             .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
             .collect();
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         self.conn
             .execute(&sql, params_refs.as_slice())
             .map_err(|e| format!("Failed to batch mark sent: {}", e))?;
@@ -252,7 +255,11 @@ impl ListenBrainzCache {
     pub fn get_queue_count(&self) -> Result<u32, String> {
         let count: i64 = self
             .conn
-            .query_row("SELECT COUNT(*) FROM listen_queue WHERE sent = 0", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM listen_queue WHERE sent = 0",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         Ok(count as u32)
     }

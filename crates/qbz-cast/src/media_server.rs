@@ -60,7 +60,12 @@ impl MediaServer {
         let base_ip = local_ip().unwrap_or_else(|| IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
         let base_url = format_base_url(base_ip, port);
 
-        log::info!("MediaServer: Started on {}:{} (base_url: {})", base_ip, port, base_url);
+        log::info!(
+            "MediaServer: Started on {}:{} (base_url: {})",
+            base_ip,
+            port,
+            base_url
+        );
 
         let entries = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -70,11 +75,19 @@ impl MediaServer {
         let port_for_log = port;
 
         let handle = thread::spawn(move || {
-            log::info!("MediaServer: Thread started, listening on port {}", port_for_log);
+            log::info!(
+                "MediaServer: Thread started, listening on port {}",
+                port_for_log
+            );
             while !shutdown_clone.load(Ordering::SeqCst) {
                 match server.recv_timeout(Duration::from_millis(250)) {
                     Ok(Some(request)) => {
-                        let response = handle_request(request.method(), request.url(), &request, &entries_clone);
+                        let response = handle_request(
+                            request.method(),
+                            request.url(),
+                            &request,
+                            &entries_clone,
+                        );
                         let _ = request.respond(response);
                     }
                     Ok(None) => {}
@@ -134,10 +147,7 @@ impl MediaServer {
             )));
         }
 
-        let size = path
-            .metadata()
-            .map_err(CastError::Io)?
-            .len();
+        let size = path.metadata().map_err(CastError::Io)?.len();
         let content_type = content_type_for_path(path);
 
         let entry = MediaEntry {
@@ -194,7 +204,12 @@ fn handle_request(
     request: &tiny_http::Request,
     entries: &Arc<Mutex<HashMap<u64, MediaEntry>>>,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
-    log::info!("MediaServer: {} request from {:?} for {}", method, request.remote_addr(), url);
+    log::info!(
+        "MediaServer: {} request from {:?} for {}",
+        method,
+        request.remote_addr(),
+        url
+    );
 
     if method != &Method::Get {
         log::warn!("MediaServer: Rejected non-GET request: {}", method);
@@ -204,14 +219,22 @@ fn handle_request(
     let id = match parse_audio_id(url) {
         Some(id) => id,
         None => {
-            log::warn!("MediaServer: 404 - Could not parse audio ID from URL: {}", url);
+            log::warn!(
+                "MediaServer: 404 - Could not parse audio ID from URL: {}",
+                url
+            );
             return Response::from_data(Vec::new()).with_status_code(StatusCode(404));
         }
     };
 
     let entry = match entries.lock().ok().and_then(|map| map.get(&id).cloned()) {
         Some(entry) => {
-            log::info!("MediaServer: Found entry for ID {}, content-type: {}, size: {} bytes", id, entry.content_type, entry.size);
+            log::info!(
+                "MediaServer: Found entry for ID {}, content-type: {}, size: {} bytes",
+                id,
+                entry.content_type,
+                entry.size
+            );
             entry
         }
         None => {
@@ -345,7 +368,11 @@ fn format_base_url(ip: IpAddr, port: u16) -> String {
 }
 
 fn content_type_for_path(path: &Path) -> String {
-    match path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+    {
         Some(ext) if ext == "flac" => "audio/flac".to_string(),
         Some(ext) if ext == "wav" => "audio/wav".to_string(),
         Some(ext) if ext == "m4a" => "audio/mp4".to_string(),

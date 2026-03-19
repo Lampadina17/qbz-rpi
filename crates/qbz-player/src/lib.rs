@@ -31,18 +31,12 @@
 //! let queue = QueueManager::new();
 //! ```
 
-pub mod queue;
 pub mod player;
+pub mod queue;
 
 // Re-export main types
-pub use queue::QueueManager;
 pub use player::{
-    Player,
-    SharedState,
-    PlaybackState,
-    PlaybackEvent,
-    BufferedMediaSource,
-    BufferWriter,
-    StreamingConfig,
-    IncrementalStreamingSource,
+    BufferWriter, BufferedMediaSource, IncrementalStreamingSource, PlaybackEvent, PlaybackState,
+    Player, SharedState, StreamingConfig,
 };
+pub use queue::QueueManager;

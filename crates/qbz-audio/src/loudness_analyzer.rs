@@ -16,12 +16,11 @@ use std::thread;
 use ebur128::{EbuR128, Mode};
 
 use super::analyzer_tap::AnalyzerMessage;
-use super::loudness_cache::LoudnessCache;
 use super::loudness::db_to_linear;
+use super::loudness_cache::LoudnessCache;
 
 /// Maximum gain boost in dB (conservative clipping prevention)
 const MAX_GAIN_DB: f32 = 6.0;
-
 
 pub struct LoudnessAnalyzer;
 
@@ -56,10 +55,19 @@ impl LoudnessAnalyzer {
             };
 
             match msg {
-                AnalyzerMessage::NewTrack { track_id, sample_rate, channels, target_lufs, gain_atomic } => {
+                AnalyzerMessage::NewTrack {
+                    track_id,
+                    sample_rate,
+                    channels,
+                    target_lufs,
+                    gain_atomic,
+                } => {
                     log::info!(
                         "[LoudnessAnalyzer] New track {} ({}Hz, {}ch, target {:.1} LUFS)",
-                        track_id, sample_rate, channels, target_lufs
+                        track_id,
+                        sample_rate,
+                        channels,
+                        target_lufs
                     );
 
                     // Check cache first
@@ -74,7 +82,8 @@ impl LoudnessAnalyzer {
                         gain_atomic.store(gain.to_bits(), Ordering::Relaxed);
 
                         // Create state marked as cached — still accept samples for refinement
-                        let mut s = AnalyzerState::new(track_id, sample_rate, channels, target_lufs);
+                        let mut s =
+                            AnalyzerState::new(track_id, sample_rate, channels, target_lufs);
                         s.gain_atomic = Some(gain_atomic);
                         s.initial_done = true;
                         state = Some(s);
@@ -197,7 +206,11 @@ impl AnalyzerState {
 
         // -inf means silence — don't adjust
         if loudness.is_infinite() || loudness.is_nan() {
-            log::debug!("[LoudnessAnalyzer] Track {}: loudness is {:?}, skipping", self.track_id, loudness);
+            log::debug!(
+                "[LoudnessAnalyzer] Track {}: loudness is {:?}, skipping",
+                self.track_id,
+                loudness
+            );
             return;
         }
 
@@ -205,7 +218,11 @@ impl AnalyzerState {
         let adjustment_db = self.target_lufs - measured_lufs;
         let gain = compute_gain_capped(adjustment_db);
 
-        let phase = if self.initial_done { "refine" } else { "initial" };
+        let phase = if self.initial_done {
+            "refine"
+        } else {
+            "initial"
+        };
         log::info!(
             "[LoudnessAnalyzer] Track {} ({}): measured {:.1} LUFS, target {:.1}, adjustment {:.2} dB, gain {:.4}",
             self.track_id, phase, measured_lufs, self.target_lufs, adjustment_db, gain

@@ -58,6 +58,8 @@ let queue: QueueTrack[] = [];
 let queueTotalTracks = 0;
 let isShuffle = false;
 let repeatMode: RepeatMode = 'off';
+let pendingRepeatMode: RepeatMode | null = null;
+let hasAuthoritativeRepeatSnapshot = false;
 
 // Local library track IDs in current queue (for distinguishing from Qobuz tracks)
 let localTrackIds = new Set<number>();
@@ -133,6 +135,80 @@ function formatDuration(seconds: number): string {
 let isOfflineMode = false;
 let tracksWithLocalCopies = new Set<number>();
 
+function normalizeRepeatMode(value: string): RepeatMode {
+  const normalized = value.toLowerCase();
+  if (normalized === 'all' || normalized === 'one') {
+    return normalized;
+  }
+  return 'off';
+}
+
+async function resolveAuthoritativeRepeatMode(): Promise<RepeatMode> {
+  if (pendingRepeatMode) {
+    return pendingRepeatMode;
+  }
+
+  if (hasAuthoritativeRepeatSnapshot) {
+    return repeatMode;
+  }
+
+  try {
+    const queueState = await invoke<BackendQueueState>('v2_get_queue_state');
+    const authoritativeRepeatMode = normalizeRepeatMode(queueState.repeat);
+
+    if (
+      authoritativeRepeatMode !== repeatMode ||
+      queueState.shuffle !== isShuffle ||
+      queueState.total_tracks !== queueTotalTracks ||
+      queueState.upcoming.length !== queue.length
+    ) {
+      await applyBackendQueueState(queueState);
+    }
+
+    hasAuthoritativeRepeatSnapshot = true;
+    return authoritativeRepeatMode;
+  } catch (err) {
+    console.warn('[Queue] Failed to fetch authoritative repeat mode before toggle:', err);
+    return repeatMode;
+  }
+}
+
+async function applyBackendQueueState(queueState: BackendQueueState): Promise<void> {
+  const trackIds = queueState.upcoming.map(track => track.id);
+
+  let localCopies = new Set<number>();
+  if (isOfflineMode && trackIds.length > 0) {
+    try {
+      const localIds = await invoke<number[]>('v2_playlist_get_tracks_with_local_copies', {
+        trackIds
+      });
+      localCopies = new Set(localIds);
+      tracksWithLocalCopies = localCopies;
+    } catch {
+      // Ignore errors, assume all available
+    }
+  }
+
+  queue = queueState.upcoming.map(track => ({
+    id: String(track.id),
+    artwork: track.artwork_url || '',
+    title: track.title,
+    artist: track.artist,
+    duration: formatDuration(track.duration_secs),
+    available: !isOfflineMode || localTrackIds.has(track.id) || localCopies.has(track.id),
+    parental_warning: track.parental_warning ?? false
+  }));
+
+  queueTotalTracks = queueState.total_tracks;
+  isShuffle = queueState.shuffle;
+  repeatMode = normalizeRepeatMode(queueState.repeat);
+  hasAuthoritativeRepeatSnapshot = true;
+  if (pendingRepeatMode === repeatMode) {
+    pendingRepeatMode = null;
+  }
+  notifyListeners();
+}
+
 /**
  * Set offline mode state for queue availability checking
  */
@@ -188,39 +264,7 @@ export async function updateLocalCopiesSet(): Promise<void> {
 export async function syncQueueState(): Promise<void> {
   try {
     const queueState = await invoke<BackendQueueState>('v2_get_queue_state');
-
-    // Get track IDs for local copy check
-    const trackIds = queueState.upcoming.map(track => track.id);
-
-    // Check local copies if in offline mode
-    let localCopies = new Set<number>();
-    if (isOfflineMode && trackIds.length > 0) {
-      try {
-        const localIds = await invoke<number[]>('v2_playlist_get_tracks_with_local_copies', {
-          trackIds
-        });
-        localCopies = new Set(localIds);
-        tracksWithLocalCopies = localCopies;
-      } catch {
-        // Ignore errors, assume all available
-      }
-    }
-
-    // Convert backend queue tracks to frontend format
-    queue = queueState.upcoming.map(track => ({
-      id: String(track.id),
-      artwork: track.artwork_url || '',
-      title: track.title,
-      artist: track.artist,
-      duration: formatDuration(track.duration_secs),
-      available: !isOfflineMode || localTrackIds.has(track.id) || localCopies.has(track.id),
-      parental_warning: track.parental_warning ?? false
-    }));
-
-    queueTotalTracks = queueState.total_tracks;
-    isShuffle = queueState.shuffle;
-    repeatMode = queueState.repeat.toLowerCase() as RepeatMode;
-    notifyListeners();
+    await applyBackendQueueState(queueState);
   } catch (err) {
     console.error('Failed to sync queue state:', err);
   }
@@ -231,18 +275,12 @@ export async function syncQueueState(): Promise<void> {
  */
 export async function toggleShuffle(): Promise<{ success: boolean; enabled: boolean }> {
   const newState = !isShuffle;
-  isShuffle = newState;
-  notifyListeners();
 
   try {
     await invoke('v2_toggle_shuffle');
-    await syncQueueState();
     return { success: true, enabled: newState };
   } catch (err) {
     console.error('Failed to set shuffle:', err);
-    // Revert on error
-    isShuffle = !newState;
-    notifyListeners();
     return { success: false, enabled: !newState };
   }
 }
@@ -251,17 +289,18 @@ export async function toggleShuffle(): Promise<{ success: boolean; enabled: bool
  * Toggle repeat mode (off -> all -> one -> off) (V2)
  */
 export async function toggleRepeat(): Promise<{ success: boolean; mode: RepeatMode }> {
-  const nextMode: RepeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+  const currentMode = await resolveAuthoritativeRepeatMode();
+  const nextMode: RepeatMode = currentMode === 'off' ? 'all' : currentMode === 'all' ? 'one' : 'off';
   // V2 expects capitalized repeat mode: 'Off' | 'All' | 'One'
   const v2Mode = nextMode.charAt(0).toUpperCase() + nextMode.slice(1);
 
   try {
     await invoke('v2_set_repeat_mode', { mode: v2Mode });
-    repeatMode = nextMode;
-    notifyListeners();
+    pendingRepeatMode = nextMode;
     return { success: true, mode: nextMode };
   } catch (err) {
     console.error('Failed to set repeat:', err);
+    pendingRepeatMode = null;
     return { success: false, mode: repeatMode };
   }
 }
@@ -352,9 +391,6 @@ export async function setQueue(tracks: BackendQueueTrack[], startIndex: number, 
 export async function clearQueue(): Promise<boolean> {
   try {
     await invoke('v2_clear_queue');
-    queue = [];
-    queueTotalTracks = 0;
-    notifyListeners();
     return true;
   } catch (err) {
     console.error('Failed to clear queue:', err);
@@ -453,13 +489,16 @@ export function reset(): void {
   queueTotalTracks = 0;
   isShuffle = false;
   repeatMode = 'off';
+  pendingRepeatMode = null;
+  hasAuthoritativeRepeatSnapshot = false;
   localTrackIds = new Set();
+  tracksWithLocalCopies = new Set();
   notifyListeners();
 }
 
 // ============ Event Listeners ============
 
-let queueEventUnlisten: UnlistenFn | null = null;
+let queueEventUnlisteners: UnlistenFn[] = [];
 
 interface QueueStateEvent {
   shuffle: boolean;
@@ -470,19 +509,54 @@ interface QueueStateEvent {
  * Start listening for queue state events from backend (e.g., shuffle/repeat changes from remote control)
  */
 export async function startQueueEventListener(): Promise<void> {
-  if (queueEventUnlisten) return;
+  if (queueEventUnlisteners.length > 0) return;
 
   try {
-    queueEventUnlisten = await listen<QueueStateEvent>('queue:state', (event) => {
-      console.log('[Queue] Received queue state event:', event.payload);
-      // Update local state directly from event
-      isShuffle = event.payload.shuffle;
-      repeatMode = event.payload.repeat.toLowerCase() as RepeatMode;
-      notifyListeners();
-      // Queue ordering may have changed (e.g. shuffle toggled remotely).
-      syncQueueState().catch(err => console.error('[Queue] Failed to sync queue after queue:state event:', err));
+    const queueUpdatedUnlisten = await listen<BackendQueueState>('queue:updated', (event) => {
+      console.log('[Queue] Received queue:updated event:', event.payload);
+      applyBackendQueueState(event.payload).catch(err =>
+        console.error('[Queue] Failed to apply queue:updated event:', err)
+      );
     });
-    console.log('[Queue] Started listening for queue state events');
+
+    const shuffleChangedUnlisten = await listen<boolean>('queue:shuffle-changed', (event) => {
+      console.log('[Queue] Received queue:shuffle-changed event:', event.payload);
+      // Shuffle changes must be reflected by the authoritative queue:updated
+      // payload, not by forcing a local resync that can capture an
+      // intermediate non-authoritative order.
+    });
+
+    const repeatChangedUnlisten = await listen<string>('queue:repeat-changed', (event) => {
+      console.log('[Queue] Received queue:repeat-changed event:', event.payload);
+      repeatMode = normalizeRepeatMode(event.payload);
+      hasAuthoritativeRepeatSnapshot = true;
+      if (pendingRepeatMode === repeatMode) {
+        pendingRepeatMode = null;
+      }
+      notifyListeners();
+    });
+
+    const queueStateUnlisten = await listen<QueueStateEvent>('queue:state', (event) => {
+      console.log('[Queue] Received queue:state event:', event.payload);
+      isShuffle = event.payload.shuffle;
+      repeatMode = normalizeRepeatMode(event.payload.repeat);
+      hasAuthoritativeRepeatSnapshot = true;
+      if (pendingRepeatMode === repeatMode) {
+        pendingRepeatMode = null;
+      }
+      notifyListeners();
+      syncQueueState().catch(err =>
+        console.error('[Queue] Failed to sync queue after queue:state event:', err)
+      );
+    });
+
+    queueEventUnlisteners = [
+      queueUpdatedUnlisten,
+      shuffleChangedUnlisten,
+      repeatChangedUnlisten,
+      queueStateUnlisten
+    ];
+    console.log('[Queue] Started listening for queue events');
   } catch (err) {
     console.error('[Queue] Failed to start queue event listener:', err);
   }
@@ -492,9 +566,11 @@ export async function startQueueEventListener(): Promise<void> {
  * Stop listening for queue state events
  */
 export function stopQueueEventListener(): void {
-  if (queueEventUnlisten) {
-    queueEventUnlisten();
-    queueEventUnlisten = null;
-    console.log('[Queue] Stopped listening for queue state events');
+  if (queueEventUnlisteners.length > 0) {
+    for (const unlisten of queueEventUnlisteners) {
+      unlisten();
+    }
+    queueEventUnlisteners = [];
+    console.log('[Queue] Stopped listening for queue events');
   }
 }

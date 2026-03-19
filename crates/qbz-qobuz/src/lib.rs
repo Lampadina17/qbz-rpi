@@ -39,7 +39,7 @@ pub mod link_resolver;
 pub mod performers;
 
 // Re-export main types
+pub use bundle::BundleTokens;
 pub use client::QobuzClient;
 pub use error::{ApiError, Result};
-pub use bundle::BundleTokens;
-pub use link_resolver::{resolve_link, ResolvedLink, LinkResolverError};
+pub use link_resolver::{resolve_link, LinkResolverError, ResolvedLink};

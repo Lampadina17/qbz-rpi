@@ -41,7 +41,7 @@
     format
   }: Props = $props();
 
-  const NUM_BANDS = 190;
+  const NUM_BANDS = 512;
   const HISTORY_BINS = 4096;
   const FRAME_INTERVAL_MS = getPanelFrameInterval('spectral-ribbon');
 
@@ -101,7 +101,7 @@
     const srHz = Math.round(normalizedSampleRateHz());
     const bits = bitDepth ?? originalBitDepth ?? 0;
     const bitsLabel = bits > 0 ? `${bits} bits` : 'unknown bits';
-    return `Stream 1/1: ${formatTypeLabel()}, ${srHz} Hz, ${bitsLabel}, FFT:1024, Bands:${NUM_BANDS}`;
+    return `Stream 1/1: ${formatTypeLabel()}, ${srHz} Hz, ${bitsLabel}, FFT:4096, Bands:${NUM_BANDS}`;
   }
 
   function computePlotRect(width: number, height: number): PlotRect {

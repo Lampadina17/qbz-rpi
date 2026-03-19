@@ -8,11 +8,11 @@ use tokio::sync::RwLock;
 
 use qbz_models::{
     Album, Artist, CoreEvent, DiscoverAlbum, DiscoverData, DiscoverPlaylistsResponse,
-    DiscoverResponse, FrontendAdapter, GenreInfo, LabelDetail, LabelExploreResponse,
-    LabelPageData, PageArtistResponse, Playlist,
-    PlaylistTag, Quality, QueueState, QueueTrack, RepeatMode, SearchResultsPage, StreamUrl, Track, UserSession,
+    DiscoverResponse, FrontendAdapter, GenreInfo, LabelDetail, LabelExploreResponse, LabelPageData,
+    PageArtistResponse, Playlist, PlaylistTag, Quality, QueueState, QueueTrack, RepeatMode,
+    SearchResultsPage, StreamUrl, Track, UserSession,
 };
-use qbz_player::{Player, PlaybackState, QueueManager};
+use qbz_player::{PlaybackState, Player, QueueManager};
 use qbz_qobuz::QobuzClient;
 
 use crate::error::CoreError;
@@ -63,9 +63,10 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
         let client = QobuzClient::new().map_err(|e| CoreError::Internal(e.to_string()))?;
 
         // Extract bundle tokens (required before any API calls)
-        client.init().await.map_err(|e| {
-            CoreError::Internal(format!("Failed to extract bundle tokens: {}", e))
-        })?;
+        client
+            .init()
+            .await
+            .map_err(|e| CoreError::Internal(format!("Failed to extract bundle tokens: {}", e)))?;
 
         *self.client.write().await = Some(client);
 
@@ -115,10 +116,7 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or(CoreError::NotInitialized)?;
         client.set_session(session.clone()).await;
-        self.emit(CoreEvent::LoggedIn {
-            session,
-        })
-        .await;
+        self.emit(CoreEvent::LoggedIn { session }).await;
         Ok(())
     }
 
@@ -158,6 +156,21 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
         let queue = self.queue.write().await;
         queue.set_shuffle(enabled);
         self.emit(CoreEvent::ShuffleChanged { enabled }).await;
+        self.emit(CoreEvent::QueueUpdated {
+            state: queue.get_state(),
+        })
+        .await;
+    }
+
+    /// Set shuffle mode using an authoritative order.
+    pub async fn set_shuffle_with_order(&self, enabled: bool, shuffle_order: Option<Vec<usize>>) {
+        let queue = self.queue.write().await;
+        queue.set_shuffle_with_order(enabled, shuffle_order);
+        self.emit(CoreEvent::ShuffleChanged { enabled }).await;
+        self.emit(CoreEvent::QueueUpdated {
+            state: queue.get_state(),
+        })
+        .await;
     }
 
     /// Toggle shuffle and return new state
@@ -168,6 +181,10 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
         queue.set_shuffle(new_enabled);
         self.emit(CoreEvent::ShuffleChanged {
             enabled: new_enabled,
+        })
+        .await;
+        self.emit(CoreEvent::QueueUpdated {
+            state: queue.get_state(),
         })
         .await;
         new_enabled
@@ -217,6 +234,22 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
     pub async fn set_queue(&self, tracks: Vec<QueueTrack>, start_index: Option<usize>) {
         let queue = self.queue.write().await;
         queue.set_queue(tracks, start_index);
+        self.emit(CoreEvent::QueueUpdated {
+            state: queue.get_state(),
+        })
+        .await;
+    }
+
+    /// Replace queue contents and playback order atomically.
+    pub async fn set_queue_with_order(
+        &self,
+        tracks: Vec<QueueTrack>,
+        start_index: Option<usize>,
+        shuffle_enabled: bool,
+        shuffle_order: Option<Vec<usize>>,
+    ) {
+        let queue = self.queue.write().await;
+        queue.set_queue_with_order(tracks, start_index, shuffle_enabled, shuffle_order);
         self.emit(CoreEvent::QueueUpdated {
             state: queue.get_state(),
         })
@@ -398,23 +431,17 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
 
     /// Pause playback
     pub fn pause(&self) -> Result<(), CoreError> {
-        self.player
-            .pause()
-            .map_err(|e| CoreError::Playback(e))
+        self.player.pause().map_err(|e| CoreError::Playback(e))
     }
 
     /// Resume playback
     pub fn resume(&self) -> Result<(), CoreError> {
-        self.player
-            .resume()
-            .map_err(|e| CoreError::Playback(e))
+        self.player.resume().map_err(|e| CoreError::Playback(e))
     }
 
     /// Stop playback
     pub fn stop(&self) -> Result<(), CoreError> {
-        self.player
-            .stop()
-            .map_err(|e| CoreError::Playback(e))
+        self.player.stop().map_err(|e| CoreError::Playback(e))
     }
 
     /// Seek to position in seconds
@@ -503,7 +530,10 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or(CoreError::NotInitialized)?;
 
-        client.get_playlist(playlist_id).await.map_err(CoreError::Api)
+        client
+            .get_playlist(playlist_id)
+            .await
+            .map_err(CoreError::Api)
     }
 
     /// Add tracks to playlist
@@ -612,14 +642,14 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or(CoreError::NotInitialized)?;
 
-        client
-            .get_genres(parent_id)
-            .await
-            .map_err(CoreError::Api)
+        client.get_genres(parent_id).await.map_err(CoreError::Api)
     }
 
     /// Get discover index
-    pub async fn get_discover_index(&self, genre_ids: Option<Vec<u64>>) -> Result<DiscoverResponse, CoreError> {
+    pub async fn get_discover_index(
+        &self,
+        genre_ids: Option<Vec<u64>>,
+    ) -> Result<DiscoverResponse, CoreError> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or(CoreError::NotInitialized)?;
 
@@ -651,10 +681,7 @@ impl<A: FrontendAdapter + Send + Sync + 'static> QbzCore<A> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or(CoreError::NotInitialized)?;
 
-        client
-            .get_playlist_tags()
-            .await
-            .map_err(CoreError::Api)
+        client.get_playlist_tags().await.map_err(CoreError::Api)
     }
 
     /// Get discover albums from a specific browse endpoint

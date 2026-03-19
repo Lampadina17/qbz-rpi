@@ -94,9 +94,8 @@ impl PlaybackCache {
                             if let Some(id_str) = filename.strip_suffix(".audio") {
                                 if let Ok(track_id) = id_str.parse::<u64>() {
                                     let size = metadata.len();
-                                    let last_accessed = metadata
-                                        .accessed()
-                                        .unwrap_or_else(|_| SystemTime::now());
+                                    let last_accessed =
+                                        metadata.accessed().unwrap_or_else(|_| SystemTime::now());
 
                                     state.entries.insert(
                                         track_id,
@@ -171,7 +170,11 @@ impl PlaybackCache {
                 }
             }
             Err(e) => {
-                log::warn!("Failed to open playback cache file for track {}: {}", track_id, e);
+                log::warn!(
+                    "Failed to open playback cache file for track {}: {}",
+                    track_id,
+                    e
+                );
                 None
             }
         }
@@ -232,7 +235,11 @@ impl PlaybackCache {
                 }
             }
             Err(e) => {
-                log::warn!("Failed to create playback cache file for track {}: {}", track_id, e);
+                log::warn!(
+                    "Failed to create playback cache file for track {}: {}",
+                    track_id,
+                    e
+                );
             }
         }
     }

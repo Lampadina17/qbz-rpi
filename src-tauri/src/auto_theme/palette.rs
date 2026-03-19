@@ -210,11 +210,7 @@ fn build_palette(mut clusters: Vec<Cluster>) -> Result<ThemePalette, String> {
 }
 
 /// Find the best accent color: prioritize saturation, then ensure WCAG AA contrast.
-fn find_best_accent(
-    colors: &[PaletteColor],
-    bg: &PaletteColor,
-    is_dark: bool,
-) -> PaletteColor {
+fn find_best_accent(colors: &[PaletteColor], bg: &PaletteColor, is_dark: bool) -> PaletteColor {
     // Sort candidates by saturation (highest first), skip the dominant (index 0)
     let mut candidates: Vec<(usize, f64)> = colors
         .iter()
@@ -252,11 +248,7 @@ fn find_best_accent(
 }
 
 /// Adjust a color's lightness to achieve WCAG AA contrast against a background.
-fn adjust_for_contrast(
-    color: &PaletteColor,
-    bg: &PaletteColor,
-    is_dark: bool,
-) -> PaletteColor {
+fn adjust_for_contrast(color: &PaletteColor, bg: &PaletteColor, is_dark: bool) -> PaletteColor {
     let (h, s, l) = color.to_hsl();
     let direction = if is_dark { 0.05 } else { -0.05 };
 

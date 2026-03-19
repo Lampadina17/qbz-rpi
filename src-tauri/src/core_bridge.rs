@@ -15,8 +15,8 @@ use qbz_core::QbzCore;
 use qbz_models::{
     Album, Artist, DiscoverAlbum, DiscoverData, DiscoverPlaylistsResponse, DiscoverResponse,
     GenreInfo, LabelDetail, LabelExploreResponse, LabelPageData, PageArtistResponse, Playlist,
-    PlaylistTag, Quality, QueueState,
-    QueueTrack, RepeatMode, SearchResultsPage, StreamUrl, Track, UserSession,
+    PlaylistTag, Quality, QueueState, QueueTrack, RepeatMode, SearchResultsPage, StreamUrl, Track,
+    UserSession,
 };
 use qbz_player::{PlaybackState, Player};
 
@@ -116,7 +116,9 @@ impl CoreBridge {
     }
 
     /// Get all queue tracks and current index (for session persistence)
-    pub async fn get_all_queue_tracks(&self) -> (Vec<qbz_models::playback::QueueTrack>, Option<usize>) {
+    pub async fn get_all_queue_tracks(
+        &self,
+    ) -> (Vec<qbz_models::playback::QueueTrack>, Option<usize>) {
         self.core.get_all_queue_tracks().await
     }
 
@@ -133,6 +135,13 @@ impl CoreBridge {
     /// Set shuffle mode directly
     pub async fn set_shuffle(&self, enabled: bool) {
         self.core.set_shuffle(enabled).await
+    }
+
+    /// Set shuffle mode using an authoritative order.
+    pub async fn set_shuffle_with_order(&self, enabled: bool, shuffle_order: Option<Vec<usize>>) {
+        self.core
+            .set_shuffle_with_order(enabled, shuffle_order)
+            .await
     }
 
     /// Clear the queue
@@ -158,6 +167,19 @@ impl CoreBridge {
     /// Set the entire queue (replaces existing)
     pub async fn set_queue(&self, tracks: Vec<QueueTrack>, start_index: Option<usize>) {
         self.core.set_queue(tracks, start_index).await
+    }
+
+    /// Set the entire queue and playback order atomically.
+    pub async fn set_queue_with_order(
+        &self,
+        tracks: Vec<QueueTrack>,
+        start_index: Option<usize>,
+        shuffle_enabled: bool,
+        shuffle_order: Option<Vec<usize>>,
+    ) {
+        self.core
+            .set_queue_with_order(tracks, start_index, shuffle_enabled, shuffle_order)
+            .await
     }
 
     /// Remove a track by index
@@ -583,6 +605,10 @@ impl CoreBridge {
     /// Get the player (for advanced usage, e.g. play_track)
     pub fn player(&self) -> Arc<Player> {
         self.core.player()
+    }
+
+    pub fn has_loaded_audio(&self) -> bool {
+        self.core.player().has_loaded_audio()
     }
 }
 

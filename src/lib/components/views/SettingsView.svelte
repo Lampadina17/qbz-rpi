@@ -154,6 +154,8 @@
     subscription?: string;
     subscriptionValidUntil?: string | null;
     showTitleBar?: boolean;
+    onQconnectDevButtonChange?: (enabled: boolean) => void;
+    onAudioBackendChange?: (backendType: string | null, alsaPlugin: string | null) => void;
   }
 
   interface CacheStats {
@@ -237,7 +239,9 @@
     userEmail = '',
     subscription = 'Qobuz™',
     subscriptionValidUntil = null,
-    showTitleBar = true
+    showTitleBar = true,
+    onQconnectDevButtonChange,
+    onAudioBackendChange,
   }: Props = $props();
 
   // Purchases toggle
@@ -335,6 +339,13 @@
   let graphicsHasNvidia = $state(false);
   let graphicsHwAccelEnabled = $state(true);
   let showLogsModal = $state(false);
+  let qconnectDevButtonEnabled = $state(localStorage.getItem('qbz-qconnect-dev-button') === 'true');
+
+  function handleQconnectDevButtonToggle(enabled: boolean): void {
+    qconnectDevButtonEnabled = enabled;
+    localStorage.setItem('qbz-qconnect-dev-button', enabled ? 'true' : 'false');
+    onQconnectDevButtonChange?.(enabled);
+  }
 
   type CompositionProfileId = 'nativeWayland' | 'x11Balanced' | 'x11Performance' | 'maxPerformance';
 
@@ -675,18 +686,20 @@
     'English': 'en',
     'Español': 'es',
     'Français': 'fr',
-    'Deutsch': 'de'
+    'Deutsch': 'de',
+    'Português': 'pt'
   };
 
   const localeToLanguage: Record<string, string> = {
     'en': 'English',
     'es': 'Español',
     'fr': 'Français',
-    'de': 'Deutsch'
+    'de': 'Deutsch',
+    'pt': 'Português'
   };
 
   // Available languages (only those with translations)
-  const availableLanguages = ['Auto', 'English', 'Español', 'Français', 'Deutsch'];
+  const availableLanguages = ['Auto', 'English', 'Español', 'Français', 'Deutsch', 'Português'];
 
   // Font family selection
   const fontFamilies: Record<string, string> = {
@@ -1103,7 +1116,7 @@
   const FPS_OPTIONS = ['0', '15', '30', '60', '120'] as const;
   const FPS_PANEL_IDS = [
     'ambient', 'visualizer', 'lissajous', 'oscilloscope',
-    'energy-bands', 'transient-pulse', 'album-reactive', 'spectral-ribbon', 'neon-flow', 'tunnel-flow', 'comet-flow'
+    'energy-bands', 'transient-pulse', 'album-reactive', 'spectral-ribbon', 'neon-flow', 'tunnel-flow', 'comet-flow', 'linebed'
   ] as const;
 
   let immersiveFpsCollapsed = $state(true);
@@ -1259,6 +1272,33 @@
   let qobuzLinkHandlerEnabled = $state(false);
   let qobuzLinkHandlerBusy = $state(false);
 
+  // QConnect device name
+  let qconnectDeviceName = $state('');
+  let qconnectDeviceNameDefault = $state('');
+
+  async function loadQconnectDeviceName() {
+    try {
+      const [name, hostname] = await Promise.all([
+        invoke<string>('v2_qconnect_get_device_name'),
+        invoke<string>('v2_get_hostname'),
+      ]);
+      qconnectDeviceName = name;
+      qconnectDeviceNameDefault = `Qbz - ${hostname}`;
+    } catch (err) {
+      console.warn('Failed to load QConnect device name:', err);
+    }
+  }
+
+  async function handleQconnectDeviceNameChange(value: string) {
+    const trimmed = value.trim();
+    qconnectDeviceName = trimmed || qconnectDeviceNameDefault;
+    try {
+      await invoke('v2_qconnect_set_device_name', { name: trimmed || qconnectDeviceNameDefault });
+    } catch (err) {
+      console.warn('Failed to set QConnect device name:', err);
+    }
+  }
+
   async function handleQobuzLinkHandlerToggle(enabled: boolean) {
     qobuzLinkHandlerBusy = true;
     try {
@@ -1388,6 +1428,9 @@
     invoke<boolean>('v2_check_qobuzapp_handler')
       .then((registered) => { qobuzLinkHandlerEnabled = registered; })
       .catch((err) => { console.warn('Could not check qobuzapp handler:', err); });
+
+    // Load QConnect device name
+    loadQconnectDeviceName();
 
     // Warm-start Plex panel from local cache and refresh in background
     hydratePlexAddressFieldsFromBaseUrl();
@@ -2421,7 +2464,7 @@
     } else {
       // 'Auto' - use browser locale, defaulting to 'en'
       const browserLocale = navigator.language.split('-')[0];
-      const supportedLocale = ['en', 'es', 'fr', 'de'].includes(browserLocale) ? browserLocale : 'en';
+      const supportedLocale = ['en', 'es', 'fr', 'de', 'pt'].includes(browserLocale) ? browserLocale : 'en';
       await setLocale(supportedLocale);
       // Clear the stored locale so it uses browser detection on next load
       localStorage.removeItem('qbz-locale');
@@ -2808,6 +2851,9 @@
       // Save backend preference
       await invoke('v2_set_audio_backend_type', { backendType });
       console.log('[Audio] Backend changed:', backendName, '(type:', backendType ?? 'auto', ')');
+      // Notify parent of backend change (for volume lock)
+      const currentPlugin = alsaPlugins.find(p => p.name === selectedAlsaPlugin)?.plugin ?? null;
+      onAudioBackendChange?.(backendType, currentPlugin);
 
       // Load devices for new backend
       if (backendType) {
@@ -2840,6 +2886,8 @@
     try {
       await invoke('v2_set_audio_alsa_plugin', { plugin });
       console.log('[Audio] ALSA plugin changed:', pluginName, '(type:', plugin ?? 'none', ')');
+      // Notify parent of plugin change (for volume lock)
+      onAudioBackendChange?.('Alsa', plugin);
 
       // Reinitialize audio if ALSA backend is active
       if (selectedBackend === 'ALSA Direct') {
@@ -3885,14 +3933,14 @@
     {/if}
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$t('settings.audio.exclusiveMode')}</span>
+        <span class="setting-label">{$t('settings.audio.exclusiveMode')} <span class="help-tip" title={$t('settings.audio.exclusiveModeHelp')}>(?)</span></span>
         <span class="setting-desc">{exclusiveModeTooltipOverride ?? $t('settings.audio.exclusiveModeDesc')}</span>
       </div>
       <Toggle enabled={exclusiveMode} onchange={handleExclusiveModeChange} disabled={exclusiveModeDisabled} />
     </div>
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$t('settings.audio.dacPassthrough')}</span>
+        <span class="setting-label">{$t('settings.audio.dacPassthrough')} <span class="help-tip" title={$t('settings.audio.dacPassthroughHelp')}>(?)</span></span>
         <span class="setting-desc">{dacPassthroughTooltipOverrideKey ? $t(dacPassthroughTooltipOverrideKey) : $t('settings.audio.dacPassthroughDesc')}</span>
       </div>
       <Toggle enabled={dacPassthrough} onchange={handleDacPassthroughChange} disabled={dacPassthroughDisabled} />
@@ -3913,7 +3961,7 @@
     {#if dacPassthrough && selectedBackend === 'PipeWire'}
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$t('settings.audio.pwForceBitperfect')}</span>
+        <span class="setting-label">{$t('settings.audio.pwForceBitperfect')} <span class="help-tip" title={$t('settings.audio.pwForceBitperfectHelp')}>(?)</span></span>
         <span class="setting-desc">{$t('settings.audio.pwForceBitperfectDesc')}</span>
       </div>
       <Toggle enabled={pwForceBitperfect} onchange={handlePwForceBitperfectChange} />
@@ -4798,6 +4846,21 @@
       <Toggle enabled={qobuzLinkHandlerEnabled} onchange={handleQobuzLinkHandlerToggle} disabled={qobuzLinkHandlerBusy} />
     </div>
 
+    <!-- Qobuz Connect Device Name -->
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$t('settings.integrations.qconnectDeviceName')}</span>
+        <small class="setting-note">{$t('settings.integrations.qconnectDeviceNameDesc')}</small>
+      </div>
+      <input
+        type="text"
+        class="text-input"
+        value={qconnectDeviceName}
+        placeholder={qconnectDeviceNameDefault}
+        onchange={(e) => handleQconnectDeviceNameChange(e.currentTarget.value)}
+      />
+    </div>
+
     {#if lastfmConnected}
       <div class="setting-row">
         <div class="lastfm-connected">
@@ -5580,6 +5643,16 @@
         </div>
       </div>
     {/if}
+
+    <!-- Qobuz Connect Dev Tools -->
+    <h4 class="subsection-title">{$t('settings.developer.qconnectDevTools')}</h4>
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$t('settings.developer.qconnectDevToolsShow')}</span>
+        <small class="setting-note">{$t('settings.developer.qconnectDevToolsDesc')}</small>
+      </div>
+      <Toggle enabled={qconnectDevButtonEnabled} onchange={handleQconnectDevButtonToggle} />
+    </div>
   </section>
   {/if}
 
@@ -6296,6 +6369,19 @@ flatpak override --user --filesystem=/home/USUARIO/Música com.blitzfc.qbz</pre>
   .setting-label {
     font-size: 14px;
     color: var(--text-secondary);
+  }
+
+  .help-tip {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    cursor: help;
+    opacity: 0.6;
+    transition: opacity 150ms ease;
+  }
+
+  .help-tip:hover {
+    opacity: 1;
+    color: var(--accent-primary);
   }
 
   .setting-with-description {
@@ -7171,6 +7257,22 @@ flatpak override --user --filesystem=/home/USUARIO/Música com.blitzfc.qbz</pre>
   .status-disabled {
     color: #fbbf24;
     font-size: 12px;
+  }
+
+  .text-input {
+    width: 180px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--bg-tertiary);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 12px;
+    text-align: right;
+  }
+
+  .text-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.6;
   }
 
   .remote-control-input {

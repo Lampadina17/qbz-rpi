@@ -3,8 +3,11 @@
 use reqwest::Client;
 use serde_json::json;
 
+use super::models::{
+    AuthGetSessionResponse, AuthGetTokenResponse, LastFmResponse, LastFmSession,
+    LastFmSimilarArtist,
+};
 use crate::error::{IntegrationError, IntegrationResult};
-use super::models::{AuthGetSessionResponse, AuthGetTokenResponse, LastFmResponse, LastFmSession, LastFmSimilarArtist};
 
 /// Cloudflare Workers proxy URL - handles API credentials and signature generation
 const LASTFM_PROXY_URL: &str = "https://qbz-api-proxy.blitzkriegfc.workers.dev/lastfm";
@@ -78,25 +81,18 @@ impl LastFmClient {
     pub async fn get_token(&self) -> IntegrationResult<(String, String)> {
         let url = format!("{}/auth.getToken", LASTFM_PROXY_URL);
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&json!({}))
-            .send()
-            .await?;
+        let response = self.client.post(&url).json(&json!({})).send().await?;
 
         let data: LastFmResponse<AuthGetTokenResponse> = response.json().await?;
 
         match data {
             LastFmResponse::Success(r) => {
-                let auth_url = r.auth_url.unwrap_or_else(|| {
-                    format!("https://www.last.fm/api/auth/?token={}", r.token)
-                });
+                let auth_url = r
+                    .auth_url
+                    .unwrap_or_else(|| format!("https://www.last.fm/api/auth/?token={}", r.token));
                 Ok((r.token, auth_url))
             }
-            LastFmResponse::Error { error, message } => {
-                Err(IntegrationError::api(error, message))
-            }
+            LastFmResponse::Error { error, message } => Err(IntegrationError::api(error, message)),
         }
     }
 
@@ -171,7 +167,10 @@ impl LastFmClient {
             Ok(())
         } else {
             let text = response.text().await.unwrap_or_default();
-            Err(IntegrationError::internal(format!("Scrobble failed: {}", text)))
+            Err(IntegrationError::internal(format!(
+                "Scrobble failed: {}",
+                text
+            )))
         }
     }
 

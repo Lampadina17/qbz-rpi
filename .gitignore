@@ -74,3 +74,4 @@ qbz-nix-docs/
 .github/copilot-instructions.md
 /crates/target/
 /crates/Cargo.lock
+test-results/

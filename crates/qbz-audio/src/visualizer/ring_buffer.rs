@@ -9,8 +9,8 @@
 //! - No allocations
 //! - Minimal atomic operations
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::cell::UnsafeCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A lock-free single-producer single-consumer ring buffer
 ///

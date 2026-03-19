@@ -20,9 +20,7 @@ pub enum CoreEvent {
     },
 
     /// Playback state changed (play/pause/stop)
-    PlaybackStateChanged {
-        state: PlaybackState,
-    },
+    PlaybackStateChanged { state: PlaybackState },
 
     /// Playback position updated (periodic, e.g., every second)
     PositionUpdated {
@@ -31,41 +29,27 @@ pub enum CoreEvent {
     },
 
     /// Track finished playing naturally
-    TrackEnded {
-        track_id: u64,
-    },
+    TrackEnded { track_id: u64 },
 
     /// Volume changed
-    VolumeChanged {
-        volume: f32,
-    },
+    VolumeChanged { volume: f32 },
 
     /// Full playback status update
-    PlaybackStatusUpdated {
-        status: PlaybackStatus,
-    },
+    PlaybackStatusUpdated { status: PlaybackStatus },
 
     // ============ Queue Events ============
     /// Queue state changed (tracks added/removed/reordered)
-    QueueUpdated {
-        state: QueueState,
-    },
+    QueueUpdated { state: QueueState },
 
     /// Shuffle mode changed
-    ShuffleChanged {
-        enabled: bool,
-    },
+    ShuffleChanged { enabled: bool },
 
     /// Repeat mode changed
-    RepeatModeChanged {
-        mode: crate::playback::RepeatMode,
-    },
+    RepeatModeChanged { mode: crate::playback::RepeatMode },
 
     // ============ Authentication Events ============
     /// User logged in successfully
-    LoggedIn {
-        session: UserSession,
-    },
+    LoggedIn { session: UserSession },
 
     /// User logged out
     LoggedOut,
@@ -81,41 +65,26 @@ pub enum CoreEvent {
     },
 
     /// Playlist created
-    PlaylistCreated {
-        playlist: Playlist,
-    },
+    PlaylistCreated { playlist: Playlist },
 
     /// Playlist updated (tracks added/removed)
-    PlaylistUpdated {
-        playlist_id: u64,
-    },
+    PlaylistUpdated { playlist_id: u64 },
 
     /// Playlist deleted
-    PlaylistDeleted {
-        playlist_id: u64,
-    },
+    PlaylistDeleted { playlist_id: u64 },
 
     // ============ Loading/Progress Events ============
     /// Loading started for an operation
-    LoadingStarted {
-        operation: String,
-    },
+    LoadingStarted { operation: String },
 
     /// Loading completed
-    LoadingCompleted {
-        operation: String,
-    },
+    LoadingCompleted { operation: String },
 
     /// Download progress for offline content
-    DownloadProgress {
-        track_id: u64,
-        progress_percent: u8,
-    },
+    DownloadProgress { track_id: u64, progress_percent: u8 },
 
     /// Download completed
-    DownloadCompleted {
-        track_id: u64,
-    },
+    DownloadCompleted { track_id: u64 },
 
     // ============ Error Events ============
     /// An error occurred
@@ -127,21 +96,14 @@ pub enum CoreEvent {
     },
 
     /// Playback error (track couldn't play)
-    PlaybackError {
-        track_id: u64,
-        message: String,
-    },
+    PlaybackError { track_id: u64, message: String },
 
     /// Network error
-    NetworkError {
-        message: String,
-    },
+    NetworkError { message: String },
 
     // ============ Audio System Events ============
     /// Audio device changed
-    AudioDeviceChanged {
-        device_name: String,
-    },
+    AudioDeviceChanged { device_name: String },
 
     /// Audio backend changed
     AudioBackendChanged {
@@ -150,9 +112,7 @@ pub enum CoreEvent {
     },
 
     /// Audio system diagnostic info
-    AudioDiagnostic {
-        message: String,
-    },
+    AudioDiagnostic { message: String },
 
     // ============ Search Events ============
     /// Search results received
@@ -163,17 +123,11 @@ pub enum CoreEvent {
 
     // ============ Navigation Hints ============
     /// Suggest navigation to album
-    NavigateToAlbum {
-        album_id: String,
-    },
+    NavigateToAlbum { album_id: String },
 
     /// Suggest navigation to artist
-    NavigateToArtist {
-        artist_id: u64,
-    },
+    NavigateToArtist { artist_id: u64 },
 
     /// Suggest navigation to playlist
-    NavigateToPlaylist {
-        playlist_id: u64,
-    },
+    NavigateToPlaylist { playlist_id: u64 },
 }

@@ -1,9 +1,9 @@
 //! DLNA device connection and playback via AVTransport SOAP
 
-use serde::{Deserialize, Serialize};
-use rupnp::{Device, Service};
 use rupnp::http::Uri;
 use rupnp::ssdp::URN;
+use rupnp::{Device, Service};
+use serde::{Deserialize, Serialize};
 
 use crate::dlna::DiscoveredDlnaDevice;
 use crate::DlnaError;
@@ -56,13 +56,11 @@ impl DlnaConnection {
             .parse()
             .map_err(|e| DlnaError::Connection(format!("Invalid device URL: {}", e)))?;
 
-        let parsed_device = Device::from_url(device_url.clone())
-            .await
-            .map_err(|e| DlnaError::Connection(format!("Failed to load device description: {}", e)))?;
+        let parsed_device = Device::from_url(device_url.clone()).await.map_err(|e| {
+            DlnaError::Connection(format!("Failed to load device description: {}", e))
+        })?;
 
-        let av_transport_service = parsed_device
-            .find_service(&av_transport_urn())
-            .cloned();
+        let av_transport_service = parsed_device.find_service(&av_transport_urn()).cloned();
         let rendering_control_service = parsed_device
             .find_service(&rendering_control_urn())
             .cloned();
@@ -110,12 +108,19 @@ impl DlnaConnection {
     }
 
     /// Set the media URI and start playback
-    pub async fn load_media(&mut self, uri: &str, metadata: &DlnaMetadata, content_type: &str) -> Result<(), DlnaError> {
+    pub async fn load_media(
+        &mut self,
+        uri: &str,
+        metadata: &DlnaMetadata,
+        content_type: &str,
+    ) -> Result<(), DlnaError> {
         if !self.connected {
             return Err(DlnaError::NotConnected);
         }
 
-        let av_service = self.av_transport_service.as_ref()
+        let av_service = self
+            .av_transport_service
+            .as_ref()
             .ok_or_else(|| DlnaError::Playback("Device has no AVTransport service".to_string()))?;
 
         // Build DIDL-Lite metadata with actual content type
@@ -133,7 +138,7 @@ impl DlnaConnection {
 
         let response = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            av_service.action(&self.device_url, "SetAVTransportURI", &payload)
+            av_service.action(&self.device_url, "SetAVTransportURI", &payload),
         )
         .await
         .map_err(|_| {
@@ -158,12 +163,18 @@ impl DlnaConnection {
             return Err(DlnaError::NotConnected);
         }
 
-        let av_service = self.av_transport_service.as_ref()
+        let av_service = self
+            .av_transport_service
+            .as_ref()
             .ok_or_else(|| DlnaError::Playback("Device has no AVTransport service".to_string()))?;
 
         let response = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            av_service.action(&self.device_url, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
+            av_service.action(
+                &self.device_url,
+                "Play",
+                "<InstanceID>0</InstanceID><Speed>1</Speed>",
+            ),
         )
         .await
         .map_err(|_| {
@@ -187,7 +198,9 @@ impl DlnaConnection {
             return Err(DlnaError::NotConnected);
         }
 
-        let av_service = self.av_transport_service.as_ref()
+        let av_service = self
+            .av_transport_service
+            .as_ref()
             .ok_or_else(|| DlnaError::Playback("Device has no AVTransport service".to_string()))?;
 
         av_service
@@ -206,7 +219,9 @@ impl DlnaConnection {
             return Err(DlnaError::NotConnected);
         }
 
-        let av_service = self.av_transport_service.as_ref()
+        let av_service = self
+            .av_transport_service
+            .as_ref()
             .ok_or_else(|| DlnaError::Playback("Device has no AVTransport service".to_string()))?;
 
         av_service
@@ -231,7 +246,9 @@ impl DlnaConnection {
         let seconds = position_secs % 60;
         let time_str = format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 
-        let av_service = self.av_transport_service.as_ref()
+        let av_service = self
+            .av_transport_service
+            .as_ref()
             .ok_or_else(|| DlnaError::Playback("Device has no AVTransport service".to_string()))?;
 
         let payload = format!(
@@ -254,8 +271,9 @@ impl DlnaConnection {
             return Err(DlnaError::NotConnected);
         }
 
-        let rc_service = self.rendering_control_service.as_ref()
-            .ok_or_else(|| DlnaError::Playback("Device has no RenderingControl service".to_string()))?;
+        let rc_service = self.rendering_control_service.as_ref().ok_or_else(|| {
+            DlnaError::Playback("Device has no RenderingControl service".to_string())
+        })?;
 
         // DLNA volume is typically 0-100
         let dlna_volume = ((volume.clamp(0.0, 1.0) * 100.0) as u32).min(100);
@@ -280,13 +298,19 @@ impl DlnaConnection {
             return Err(DlnaError::NotConnected);
         }
 
-        let av_service = self.av_transport_service.as_ref()
+        let av_service = self
+            .av_transport_service
+            .as_ref()
             .ok_or_else(|| DlnaError::Playback("Device has no AVTransport service".to_string()))?;
 
         // Get position info
         let position_response = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            av_service.action(&self.device_url, "GetPositionInfo", "<InstanceID>0</InstanceID>")
+            av_service.action(
+                &self.device_url,
+                "GetPositionInfo",
+                "<InstanceID>0</InstanceID>",
+            ),
         )
         .await
         .map_err(|_| DlnaError::Playback("GetPositionInfo timed out".to_string()))?
@@ -295,26 +319,33 @@ impl DlnaConnection {
         // Get transport state
         let transport_response = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            av_service.action(&self.device_url, "GetTransportInfo", "<InstanceID>0</InstanceID>")
+            av_service.action(
+                &self.device_url,
+                "GetTransportInfo",
+                "<InstanceID>0</InstanceID>",
+            ),
         )
         .await
         .map_err(|_| DlnaError::Playback("GetTransportInfo timed out".to_string()))?
         .map_err(|e| DlnaError::Playback(e.to_string()))?;
 
         // Parse RelTime (position) - format: "HH:MM:SS" or "H:MM:SS"
-        let rel_time = position_response.get("RelTime")
+        let rel_time = position_response
+            .get("RelTime")
             .map(|s| s.as_str())
             .unwrap_or("0:00:00");
         let position_secs = parse_time_string(rel_time);
 
         // Parse TrackDuration - format: "HH:MM:SS"
-        let track_duration = position_response.get("TrackDuration")
+        let track_duration = position_response
+            .get("TrackDuration")
             .map(|s| s.as_str())
             .unwrap_or("0:00:00");
         let duration_secs = parse_time_string(track_duration);
 
         // Get transport state (PLAYING, PAUSED_PLAYBACK, STOPPED, etc.)
-        let transport_state = transport_response.get("CurrentTransportState")
+        let transport_state = transport_response
+            .get("CurrentTransportState")
             .map(|s| s.to_string())
             .unwrap_or_else(|| "UNKNOWN".to_string());
 
@@ -324,7 +355,6 @@ impl DlnaConnection {
             transport_state,
         })
     }
-
 }
 
 /// Parse time string "HH:MM:SS" or "H:MM:SS" to seconds
@@ -336,7 +366,9 @@ fn parse_time_string(time: &str) -> u64 {
 
     let hours: u64 = parts[0].parse().unwrap_or(0);
     let minutes: u64 = parts[1].parse().unwrap_or(0);
-    let seconds: u64 = parts[2].split('.').next()
+    let seconds: u64 = parts[2]
+        .split('.')
+        .next()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
@@ -345,15 +377,25 @@ fn parse_time_string(time: &str) -> u64 {
 
 /// Build DIDL-Lite metadata for a track
 fn build_didl_metadata(uri: &str, metadata: &DlnaMetadata, content_type: &str) -> String {
-    let duration = metadata.duration_secs.map(|d| {
-        let hours = d / 3600;
-        let minutes = (d % 3600) / 60;
-        let seconds = d % 60;
-        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-    }).unwrap_or_else(|| "00:00:00".to_string());
+    let duration = metadata
+        .duration_secs
+        .map(|d| {
+            let hours = d / 3600;
+            let minutes = (d % 3600) / 60;
+            let seconds = d % 60;
+            format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+        })
+        .unwrap_or_else(|| "00:00:00".to_string());
 
-    let artwork = metadata.artwork_url.as_ref()
-        .map(|url| format!(r#"<upnp:albumArtURI>{}</upnp:albumArtURI>"#, xml_escape(url)))
+    let artwork = metadata
+        .artwork_url
+        .as_ref()
+        .map(|url| {
+            format!(
+                r#"<upnp:albumArtURI>{}</upnp:albumArtURI>"#,
+                xml_escape(url)
+            )
+        })
         .unwrap_or_default();
 
     // Use actual content type for protocolInfo - critical for DLNA compatibility

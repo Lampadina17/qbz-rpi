@@ -76,6 +76,8 @@
     toggleFocusMode,
     openCastPicker,
     closeCastPicker,
+    openQconnectPanel,
+    closeQconnectPanel,
     openPlaylistModal,
     closePlaylistModal,
     openPlaylistImport,
@@ -188,6 +190,7 @@
     setQueueEnded,
     setOnTrackEnded,
     setOnResumeFromStop,
+    setOnTogglePlayOverride,
     setGaplessGetNextTrackId,
     setOnGaplessTransition,
     togglePlay,
@@ -195,12 +198,14 @@
     setVolume as playerSetVolume,
     stop as stopPlayback,
     setPendingSessionRestore,
+    setRemoteControlMode,
     startPolling,
     stopPolling,
     reset as resetPlayer,
     getPlayerState,
     getVolume,
     resyncPersistedVolume,
+    toggleMute,
     type PlayingTrack,
     type PlayerState
   } from '$lib/stores/playerStore';
@@ -211,10 +216,6 @@
     syncQueueState,
     toggleShuffle as queueToggleShuffle,
     toggleRepeat as queueToggleRepeat,
-    addToQueueNext,
-    addTracksToQueueNext,
-    addToQueue,
-    addTracksToQueue,
     setQueue,
     clearQueue,
     playQueueIndex,
@@ -280,6 +281,10 @@
     updateLastfmNowPlaying,
     cleanup as cleanupPlayback
   } from '$lib/services/playbackService';
+  import {
+    isPlaybackSourceLocal,
+    resolvePlaybackSource
+  } from '$lib/services/playbackSource';
 
   import {
     queueTrackNext,
@@ -299,8 +304,37 @@
     handleAddToFavorites,
     addToPlaylist,
     shareQobuzTrackLink,
-    shareSonglinkTrack
+    shareSonglinkTrack,
+    loadQconnectQueue
   } from '$lib/services/trackActions';
+  import { replacePlaybackQueue } from '$lib/services/queuePlaybackService';
+  import type {
+    QconnectDiagnosticsPayload,
+    QconnectQueueSnapshot,
+    QconnectRendererReportDebugPayload,
+    QconnectRendererSnapshot
+  } from '$lib/services/qconnectRemoteQueue';
+  import {
+    DEFAULT_QCONNECT_CONNECTION_STATUS,
+    QCONNECT_DIAGNOSTIC_LOG_LIMIT,
+    SHOW_QCONNECT_DEV_DIAGNOSTICS,
+    appendQconnectDiagnosticEntry,
+    evaluateQconnectPlaybackReportSkip,
+    evaluateQconnectSessionPersistence,
+    fetchQconnectRuntimeState,
+    isQconnectPeerRendererActive,
+    isQconnectRemoteModeActive as computeQconnectRemoteModeActive,
+    logQconnectPlaybackReport as appendQconnectPlaybackReport,
+    qconnectAdmissionReasonKey,
+    shouldQconnectSuppressLocalPlaybackAutomation,
+    toggleQconnectConnection
+  } from '$lib/services/qconnectRuntime';
+  import type {
+    QconnectAdmissionBlockedEvent,
+    QconnectConnectionStatus,
+    QconnectDiagnosticsEntry,
+    QconnectSessionSnapshot
+  } from '$lib/services/qconnectRuntime';
 
   // Internationalization
   import { t } from '$lib/i18n';
@@ -355,6 +389,7 @@
   import Sidebar from '$lib/components/Sidebar.svelte';
   import AboutModal from '$lib/components/AboutModal.svelte';
   import NowPlayingBar from '$lib/components/NowPlayingBar.svelte';
+  import QconnectPanel from '$lib/components/QconnectPanel.svelte';
   import Toast from '$lib/components/Toast.svelte';
 
   // Views
@@ -565,6 +600,122 @@
     navigateTo('purchase-album', albumId);
   }
 
+  function isSessionRestoreSafeView(view: ViewType): boolean {
+    switch (view) {
+      case 'search':
+      case 'library':
+      case 'settings':
+      case 'playlist-manager':
+      case 'blacklist-manager':
+      case 'favorites-tracks':
+      case 'favorites-albums':
+      case 'favorites-artists':
+      case 'favorites-playlists':
+      case 'discover-new-releases':
+      case 'discover-ideal-discography':
+      case 'discover-top-albums':
+      case 'discover-qobuzissimes':
+      case 'discover-albums-of-the-week':
+      case 'discover-press-accolades':
+      case 'discover-playlists':
+      case 'purchases':
+      case 'dailyq':
+      case 'weeklyq':
+      case 'favq':
+      case 'topq':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function getSessionFallbackView(view: ViewType): ViewType {
+    switch (view) {
+      case 'library-album':
+        return 'library';
+      case 'purchase-album':
+        return 'purchases';
+      default:
+        return 'home';
+    }
+  }
+
+  function getPersistedSessionViewState(): {
+    view: ViewType;
+    viewContextId: string | null;
+    viewContextType: string | null;
+  } {
+    switch (activeView) {
+      case 'album':
+        if (selectedAlbum?.id) {
+          return {
+            view: 'album',
+            viewContextId: String(selectedAlbum.id),
+            viewContextType: 'album',
+          };
+        }
+        break;
+      case 'artist':
+        if (selectedArtist?.id) {
+          return {
+            view: 'artist',
+            viewContextId: String(selectedArtist.id),
+            viewContextType: 'artist',
+          };
+        }
+        break;
+      case 'playlist':
+        if (selectedPlaylistId) {
+          return {
+            view: 'playlist',
+            viewContextId: String(selectedPlaylistId),
+            viewContextType: 'playlist',
+          };
+        }
+        break;
+      case 'library-album': {
+        const localAlbumId = getSelectedLocalAlbumId();
+        if (localAlbumId) {
+          return {
+            view: 'library-album',
+            viewContextId: localAlbumId,
+            viewContextType: 'library-album',
+          };
+        }
+        break;
+      }
+      case 'purchase-album':
+        if (selectedPurchaseAlbumId) {
+          return {
+            view: 'purchase-album',
+            viewContextId: selectedPurchaseAlbumId,
+            viewContextType: 'purchase-album',
+          };
+        }
+        break;
+    }
+
+    if (isSessionRestoreSafeView(activeView)) {
+      return {
+        view: activeView,
+        viewContextId: null,
+        viewContextType: null,
+      };
+    }
+
+    const fallbackView = getSessionFallbackView(activeView);
+    console.warn('[Session] Persist fallback applied for unsupported or incomplete view:', {
+      activeView,
+      fallbackView,
+    });
+
+    return {
+      view: fallbackView,
+      viewContextId: null,
+      viewContextType: null,
+    };
+  }
+
   function waitForHomePaint(): Promise<void> {
     if (typeof window === 'undefined') return Promise.resolve();
     return new Promise((resolve) => {
@@ -691,6 +842,19 @@
 
   // Cast State
   let isCastConnected = $state(false);
+  let isQconnectPanelOpen = $state(false);
+  let showQconnectDevButton = $state(localStorage.getItem('qbz-qconnect-dev-button') === 'true');
+  let isQobuzConnectConnected = $state(false);
+  let qobuzConnectBusy = $state(false);
+  let qobuzConnectRefreshBusy = $state(false);
+  let qobuzConnectStatus = $state<QconnectConnectionStatus>(DEFAULT_QCONNECT_CONNECTION_STATUS);
+  let qobuzConnectQueueSnapshot = $state<QconnectQueueSnapshot | null>(null);
+  let qobuzConnectRendererSnapshot = $state<QconnectRendererSnapshot | null>(null);
+  let qobuzConnectSessionSnapshot = $state<QconnectSessionSnapshot | null>(null);
+  let qobuzConnectDiagnosticsLogs = $state<QconnectDiagnosticsEntry[]>([]);
+  const showQconnectDevDiagnostics = SHOW_QCONNECT_DEV_DIAGNOSTICS;
+  let qconnectSessionPersistenceSkipLogged = false;
+  let lastQconnectReportSkipSignature = '';
 
   // Playlist Modal State (from uiStore subscription)
   let isPlaylistModalOpen = $state(false);
@@ -737,6 +901,7 @@
   let isFavorite = $state(false);
   let normalizationEnabled = $state(false);
   let normalizationGain = $state<number | null>(null);
+  let isAlsaDirectHw = $state(false); // ALSA Direct hw: locks volume to 100%
   // Queue/Shuffle State (from queueStore subscription)
   let isShuffle = $state(false);
   let repeatMode = $state<RepeatMode>('off');
@@ -747,6 +912,37 @@
   let infinitePlayEnabled = $state(false);
   let sessionPersistEnabled = $state(false);
   let radioLoading = $state(false);
+  let qconnectRemoteClockMs = $state(Date.now());
+  let qconnectRemoteProjectedTrackId = $state<number | null>(null);
+
+  const qconnectPeerRendererActive = $derived(
+    isQconnectPeerRendererActive(qobuzConnectSessionSnapshot)
+  );
+  const qconnectSuppressLocalPlaybackAutomation = $derived(
+    shouldQconnectSuppressLocalPlaybackAutomation(
+      isQobuzConnectConnected,
+      qobuzConnectSessionSnapshot
+    )
+  );
+  const effectiveIsPlaying = $derived(
+    qconnectPeerRendererActive
+      ? qobuzConnectRendererSnapshot?.playing_state === 2
+      : isPlaying
+  );
+  const effectiveCurrentTime = $derived(
+    qconnectPeerRendererActive
+      ? (() => {
+          const remotePositionMs = Math.max(0, qobuzConnectRendererSnapshot?.current_position_ms ?? 0);
+          const remoteUpdatedAtMs = qobuzConnectRendererSnapshot?.updated_at_ms ?? 0;
+          const extrapolatedMs =
+            effectiveIsPlaying && remoteUpdatedAtMs > 0
+              ? remotePositionMs + Math.max(0, qconnectRemoteClockMs - remoteUpdatedAtMs)
+              : remotePositionMs;
+          const maxDurationMs = Math.max(0, duration * 1000);
+          return (maxDurationMs > 0 ? Math.min(extrapolatedMs, maxDurationMs) : extrapolatedMs) / 1000;
+        })()
+      : currentTime
+  );
 
   // Toast State (from store subscription)
   let toast = $state<ToastData | null>(null);
@@ -772,6 +968,266 @@
     }
   }
 
+  function pushQobuzConnectDiagnostic(
+    channel: string,
+    level: 'info' | 'warn' | 'error',
+    payload: unknown
+  ): void {
+    qobuzConnectDiagnosticsLogs = appendQconnectDiagnosticEntry(
+      qobuzConnectDiagnosticsLogs,
+      channel,
+      level,
+      payload,
+      QCONNECT_DIAGNOSTIC_LOG_LIMIT
+    );
+  }
+
+  function clearQobuzConnectDiagnostics(): void {
+    qobuzConnectDiagnosticsLogs = [];
+  }
+
+  function logQconnectPlaybackReport(
+    source: 'interval' | 'player_transition',
+    payload: Record<string, unknown>
+  ): void {
+    qobuzConnectDiagnosticsLogs = appendQconnectPlaybackReport(
+      qobuzConnectDiagnosticsLogs,
+      source,
+      payload
+    );
+  }
+
+  function shouldSkipQconnectPlaybackReport(currentTrackId: number | null | undefined): boolean {
+    const decision = evaluateQconnectPlaybackReportSkip({
+      currentTrackId,
+      queueSnapshot: qobuzConnectQueueSnapshot,
+      rendererSnapshot: qobuzConnectRendererSnapshot,
+      lastSkipSignature: lastQconnectReportSkipSignature
+    });
+
+    lastQconnectReportSkipSignature = decision.nextSkipSignature;
+    if (decision.diagnosticPayload) {
+      pushQobuzConnectDiagnostic('qconnect:report_playback_state:skip', 'warn', decision.diagnosticPayload);
+    }
+
+    return decision.shouldSkip;
+  }
+
+  function isQconnectRemoteModeActive(): boolean {
+    return computeQconnectRemoteModeActive(isQobuzConnectConnected, qobuzConnectStatus);
+  }
+
+  function shouldPersistLocalSession(): boolean {
+    const decision = evaluateQconnectSessionPersistence(
+      isQconnectRemoteModeActive(),
+      qconnectSessionPersistenceSkipLogged
+    );
+    qconnectSessionPersistenceSkipLogged = decision.nextSkipLogged;
+    if (decision.shouldLogSkip) {
+      console.log('[Session] Skipping local session persistence while Qobuz Connect remote mode is active');
+    }
+    return decision.shouldPersist;
+  }
+
+  function applyQobuzConnectStatus(status: QconnectConnectionStatus): void {
+    qobuzConnectStatus = status;
+    const nextConnected = Boolean(status.transport_connected);
+    isQobuzConnectConnected = nextConnected;
+  }
+
+  $effect(() => {
+    setRemoteControlMode(qconnectSuppressLocalPlaybackAutomation);
+  });
+
+  function mapBackendQueueTrackToPlayingTrack(track: BackendQueueTrack): PlayingTrack {
+    const rawRate = track.sample_rate ?? undefined;
+    const normalizedRate = rawRate == null
+      ? undefined
+      : (track.is_local || track.source === 'plex')
+        ? rawRate / 1000
+        : rawRate;
+
+    return {
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      artwork: track.artwork_url || '',
+      duration: track.duration_secs,
+      quality: track.hires ? 'Hi-Res' : 'CD Quality',
+      bitDepth: track.bit_depth ?? undefined,
+      samplingRate: normalizedRate,
+      isLocal: track.is_local,
+      source: track.source ?? undefined,
+      albumId: track.album_id ?? undefined,
+      artistId: track.artist_id ?? undefined,
+      parental_warning: track.parental_warning ?? undefined
+    };
+  }
+
+  async function syncQconnectRemoteProjection(
+    rendererSnapshot: QconnectRendererSnapshot | null | undefined,
+    peerRendererActive: boolean
+  ): Promise<void> {
+    if (!peerRendererActive) {
+      qconnectRemoteProjectedTrackId = null;
+      return;
+    }
+
+    await syncQueueState();
+    const state = await getBackendQueueState();
+    if (!state) {
+      return;
+    }
+
+    if (state.shuffle && state.current_track && state.total_tracks > 0) {
+      queueRemainingTracks = state.total_tracks - 1;
+    } else if (state.current_index !== null && state.total_tracks > 0) {
+      queueRemainingTracks = state.total_tracks - state.current_index - 1;
+    } else {
+      queueRemainingTracks = state.total_tracks;
+    }
+
+    historyTracks = state.history.map((track) => ({
+      id: String(track.id),
+      artwork: track.artwork_url || '',
+      title: track.title,
+      artist: track.artist,
+      duration: formatDuration(track.duration_secs),
+      trackId: track.id
+    }));
+
+    const remoteTrack = state.current_track;
+    const remoteTrackId = remoteTrack?.id ?? null;
+
+    if (remoteTrack) {
+      currentTrack = mapBackendQueueTrackToPlayingTrack(remoteTrack);
+      duration = remoteTrack.duration_secs;
+    } else if (!rendererSnapshot?.current_track) {
+      currentTrack = null;
+      duration = 0;
+    }
+
+    if (rendererSnapshot?.playing_state != null) {
+      isPlaying = rendererSnapshot.playing_state === 2;
+    }
+    if (rendererSnapshot?.current_position_ms != null) {
+      currentTime = Math.max(0, rendererSnapshot.current_position_ms / 1000);
+    }
+
+    if (remoteTrackId !== qconnectRemoteProjectedTrackId) {
+      qconnectRemoteProjectedTrackId = remoteTrackId;
+      if (remoteTrackId == null) {
+        isFavorite = false;
+      } else {
+        isFavorite = await checkTrackFavorite(remoteTrackId);
+      }
+    }
+  }
+
+  async function refreshQobuzConnectStatus(): Promise<void> {
+    try {
+      const runtimeState = await fetchQconnectRuntimeState();
+      applyQobuzConnectStatus(runtimeState.status);
+    } catch {
+      applyQobuzConnectStatus(DEFAULT_QCONNECT_CONNECTION_STATUS);
+    }
+  }
+
+  async function refreshQobuzConnectSnapshots(): Promise<void> {
+    if (!isQobuzConnectConnected) {
+      qobuzConnectQueueSnapshot = null;
+      qobuzConnectRendererSnapshot = null;
+      qobuzConnectSessionSnapshot = null;
+      qconnectRemoteProjectedTrackId = null;
+      return;
+    }
+
+    const runtimeState = await fetchQconnectRuntimeState();
+    applyQobuzConnectStatus(runtimeState.status);
+    qobuzConnectQueueSnapshot = runtimeState.queueSnapshot;
+    qobuzConnectRendererSnapshot = runtimeState.rendererSnapshot;
+    qobuzConnectSessionSnapshot = runtimeState.sessionSnapshot;
+    const peerRendererActive = isQconnectPeerRendererActive(runtimeState.sessionSnapshot);
+    await syncQconnectRemoteProjection(runtimeState.rendererSnapshot, peerRendererActive);
+
+    if (runtimeState.snapshotError) {
+      pushQobuzConnectDiagnostic('snapshot', 'warn', runtimeState.snapshotError);
+    }
+  }
+
+  async function refreshQobuzConnectRuntimeState(): Promise<void> {
+    if (qobuzConnectRefreshBusy) return;
+    qobuzConnectRefreshBusy = true;
+    try {
+      const runtimeState = await fetchQconnectRuntimeState();
+      applyQobuzConnectStatus(runtimeState.status);
+      qobuzConnectQueueSnapshot = runtimeState.queueSnapshot;
+      qobuzConnectRendererSnapshot = runtimeState.rendererSnapshot;
+      qobuzConnectSessionSnapshot = runtimeState.sessionSnapshot;
+      const peerRendererActive = isQconnectPeerRendererActive(runtimeState.sessionSnapshot);
+      await syncQconnectRemoteProjection(runtimeState.rendererSnapshot, peerRendererActive);
+      if (runtimeState.snapshotError) {
+        pushQobuzConnectDiagnostic('snapshot', 'warn', runtimeState.snapshotError);
+      }
+    } finally {
+      qobuzConnectRefreshBusy = false;
+    }
+  }
+
+  async function handleQconnectTogglePlayOverride(): Promise<boolean> {
+    if (!isQobuzConnectConnected) {
+      return false;
+    }
+
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_toggle_play_if_remote');
+      if (handledRemotely) {
+        await refreshQobuzConnectRuntimeState();
+      }
+      return handledRemotely;
+    } catch (err) {
+      pushQobuzConnectDiagnostic('qconnect:toggle_play_handoff', 'error', {
+        error: String(err)
+      });
+      throw err;
+    }
+  }
+
+  async function handleQobuzConnectButton(): Promise<void> {
+    if (qobuzConnectBusy) return;
+    qobuzConnectBusy = true;
+    try {
+      await toggleQconnectConnection(isQobuzConnectConnected);
+    } catch (err) {
+      console.error('Qobuz Connect toggle failed:', err);
+      pushQobuzConnectDiagnostic('toggle', 'error', err);
+    } finally {
+      await refreshQobuzConnectRuntimeState();
+      qobuzConnectBusy = false;
+    }
+  }
+
+  function openQobuzConnectPanelFromNowPlaying(): void {
+    openQconnectPanel();
+    void refreshQobuzConnectRuntimeState();
+  }
+
+  $effect(() => {
+    if (!qconnectPeerRendererActive || !effectiveIsPlaying) {
+      return;
+    }
+
+    qconnectRemoteClockMs = Date.now();
+    const intervalId = window.setInterval(() => {
+      qconnectRemoteClockMs = Date.now();
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  });
+
   // Navigation wrapper (keeps debug logging)
   async function navigateTo(view: string, itemId?: string | number) {
     console.log('navigateTo called with:', view, 'itemId:', itemId, 'current activeView:', activeView);
@@ -784,6 +1240,10 @@
     if (view === 'search' && activeView === 'search') {
       triggerSearchFocus();
       return;
+    }
+    // Set homeTab when navigating to a specific home tab (Discover menu)
+    if (view === 'home' && (itemId === 'home' || itemId === 'editorPicks' || itemId === 'forYou')) {
+      homeTab = itemId;
     }
     navTo(view as ViewType, itemId);
   }
@@ -1265,7 +1725,10 @@
       artist_id: trk.artistId ?? album.artistId
     }));
 
-    await setQueue(queueTracks, 0, true);
+    await replacePlaybackQueue(queueTracks, 0, {
+      debugLabel: 'page:play-album'
+    });
+
     const firstTrack = album.tracks[0];
     const quality = firstTrack.hires && firstTrack.bitDepth && firstTrack.samplingRate
       ? `${firstTrack.bitDepth}bit/${firstTrack.samplingRate}kHz`
@@ -1293,24 +1756,32 @@
     if (!album?.tracks?.length) return;
 
     const artwork = album.artwork || '';
-    const queueTracks: BackendQueueTrack[] = album.tracks.map(trk => ({
-      id: trk.id,
-      title: trk.title,
-      artist: trk.artist || album.artist || 'Unknown Artist',
-      album: album.title || '',
-      duration_secs: trk.durationSeconds,
-      artwork_url: artwork || null,
-      hires: trk.hires ?? false,
-      bit_depth: trk.bitDepth ?? null,
-      sample_rate: trk.samplingRate ?? null,
-      is_local: false,
-      album_id: album.id,
-      artist_id: trk.artistId ?? album.artistId
-    }));
-
-    const success = await addTracksToQueueNext(queueTracks);
-    if (success) {
-      showToast($t('toast.playingTracksNext', { values: { count: queueTracks.length } }), 'success');
+    let queuedCount = 0;
+    for (let i = album.tracks.length - 1; i >= 0; i--) {
+      const trk = album.tracks[i];
+      const queued = await queueTrackNext({
+        id: trk.id,
+        title: trk.title,
+        artist: trk.artist || album.artist || 'Unknown Artist',
+        album: album.title || '',
+        duration_secs: trk.durationSeconds,
+        artwork_url: artwork || null,
+        hires: trk.hires ?? false,
+        bit_depth: trk.bitDepth ?? null,
+        sample_rate: trk.samplingRate ?? null,
+        is_local: false,
+        album_id: album.id,
+        artist_id: trk.artistId ?? album.artistId,
+        streamable: trk.streamable ?? true,
+        source: 'qobuz',
+        parental_warning: trk.parental_warning ?? false
+      }, false, { silent: true });
+      if (queued) {
+        queuedCount += 1;
+      }
+    }
+    if (queuedCount > 0) {
+      showToast($t('toast.playingTracksNext', { values: { count: queuedCount } }), 'success');
     } else {
       showToast($t('toast.failedAddToQueue'), 'error');
     }
@@ -1336,9 +1807,16 @@
       artist_id: trk.artistId ?? album.artistId
     }));
 
-    const success = await addTracksToQueue(queueTracks);
-    if (success) {
-      showToast($t('toast.addedTracksToQueue', { values: { count: queueTracks.length } }), 'success');
+    let queuedCount = 0;
+    for (const queueTrack of queueTracks) {
+      const queued = await queueTrackLater(queueTrack, false, { silent: true });
+      if (queued) {
+        queuedCount += 1;
+      }
+    }
+
+    if (queuedCount > 0) {
+      showToast($t('toast.addedTracksToQueue', { values: { count: queuedCount } }), 'success');
     } else {
       showToast($t('toast.failedAddToQueue'), 'error');
     }
@@ -1428,6 +1906,7 @@
         hires_streamable?: boolean;
         maximum_bit_depth?: number;
         maximum_sampling_rate?: number;
+        parental_warning?: boolean;
       }>;
     };
   }
@@ -1466,7 +1945,9 @@
       artist_id: trk.performer?.id
     }));
 
-    await setQueue(queueTracks, 0);
+    await replacePlaybackQueue(queueTracks, 0, {
+      debugLabel: 'page:play-playlist'
+    });
 
     const firstTrack = tracks[0];
     const artwork = firstTrack.album?.image?.large || firstTrack.album?.image?.thumbnail || firstTrack.album?.image?.small || '';
@@ -1499,24 +1980,34 @@
     }
 
     const tracks = playlist.tracks.items;
-    const queueTracks: BackendQueueTrack[] = tracks.map(trk => ({
-      id: trk.id,
-      title: trk.title,
-      artist: trk.performer?.name || 'Unknown Artist',
-      album: trk.album?.title || '',
-      duration_secs: trk.duration,
-      artwork_url: trk.album?.image?.large || trk.album?.image?.thumbnail || trk.album?.image?.small || null,
-      hires: trk.hires_streamable ?? false,
-      bit_depth: trk.maximum_bit_depth ?? null,
-      sample_rate: trk.maximum_sampling_rate ?? null,
-      is_local: false,
-      album_id: trk.album?.id,
-      artist_id: trk.performer?.id
-    }));
+    // Add in reverse order so they play in correct sequence
+    let queuedCount = 0;
+    for (let i = tracks.length - 1; i >= 0; i--) {
+      const trk = tracks[i];
+      const queued = await queueTrackNext({
+        id: trk.id,
+        title: trk.title,
+        artist: trk.performer?.name || 'Unknown Artist',
+        album: trk.album?.title || '',
+        duration_secs: trk.duration,
+        artwork_url: trk.album?.image?.large || trk.album?.image?.thumbnail || trk.album?.image?.small || null,
+        hires: trk.hires_streamable ?? false,
+        bit_depth: trk.maximum_bit_depth ?? null,
+        sample_rate: trk.maximum_sampling_rate ?? null,
+        is_local: false,
+        album_id: trk.album?.id,
+        artist_id: trk.performer?.id,
+        streamable: true,
+        source: 'qobuz',
+        parental_warning: trk.parental_warning ?? false
+      }, false, { silent: true });
+      if (queued) {
+        queuedCount += 1;
+      }
+    }
 
-    const success = await addTracksToQueueNext(queueTracks);
-    if (success) {
-      showToast($t('toast.playingTracksNext', { values: { count: queueTracks.length } }), 'success');
+    if (queuedCount > 0) {
+      showToast($t('toast.playingTracksNext', { values: { count: queuedCount } }), 'success');
     } else {
       showToast($t('toast.failedAddToQueue'), 'error');
     }
@@ -1545,9 +2036,16 @@
       artist_id: trk.performer?.id
     }));
 
-    const success = await addTracksToQueue(queueTracks);
-    if (success) {
-      showToast($t('toast.addedTracksToQueue', { values: { count: queueTracks.length } }), 'success');
+    let queuedCount = 0;
+    for (const queueTrack of queueTracks) {
+      const queued = await queueTrackLater(queueTrack, false, { silent: true });
+      if (queued) {
+        queuedCount += 1;
+      }
+    }
+
+    if (queuedCount > 0) {
+      showToast($t('toast.addedTracksToQueue', { values: { count: queuedCount } }), 'success');
     } else {
       showToast($t('toast.failedAddToQueue'), 'error');
     }
@@ -1671,7 +2169,9 @@
       console.log('[Album Queue] Track IDs:', queueTracks.map(trk => trk.id));
 
       // Set the queue starting at the clicked track
-      await setQueue(queueTracks, trackIndex >= 0 ? trackIndex : 0, true);
+      await replacePlaybackQueue(queueTracks, trackIndex >= 0 ? trackIndex : 0, {
+        debugLabel: 'page:album-track-play'
+      });
 
       console.log('[Album Queue] Queue set successfully');
     }
@@ -1697,20 +2197,79 @@
     playerSeek(time);
   }
 
-  function handleVolumeChange(newVolume: number) {
+  async function handleVolumeChange(newVolume: number) {
+    // ALSA Direct hw: locks volume at 100%
+    if (isAlsaDirectHw) return;
+
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_set_volume_if_remote', { volume: newVolume });
+      if (handledRemotely) return;
+    } catch {
+      // Fall through to local
+    }
+
     playerSetVolume(newVolume);
+    // Report volume change to QConnect server when acting as renderer
+    if (isQobuzConnectConnected) {
+      invoke('v2_qconnect_report_volume', { volume: newVolume }).catch(() => {});
+    }
+  }
+
+  async function handleToggleMute() {
+    // ALSA Direct hw: locks volume at 100%
+    if (isAlsaDirectHw) return;
+
+    // Determine current mute state from volume
+    const currentlyMuted = volume === 0;
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_mute_if_remote', { value: !currentlyMuted });
+      if (handledRemotely) return;
+    } catch {
+      // Fall through to local
+    }
+
+    await toggleMute();
+    // Report volume change to QConnect server when acting as renderer
+    if (isQobuzConnectConnected) {
+      const newVolume = getVolume();
+      invoke('v2_qconnect_report_volume', { volume: newVolume }).catch(() => {});
+    }
   }
 
   async function toggleShuffle() {
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_toggle_shuffle_if_remote');
+      if (handledRemotely) {
+        await refreshQobuzConnectRuntimeState();
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off shuffle toggle to remote renderer:', err);
+      return;
+    }
+
     const result = await queueToggleShuffle();
     if (result.success) {
       showToast(result.enabled ? $t('toast.shuffleEnabled') : $t('toast.shuffleDisabled'), 'info');
       // Persist playback mode to session
-      saveSessionPlaybackMode(result.enabled, repeatMode);
+      if (shouldPersistLocalSession()) {
+        saveSessionPlaybackMode(result.enabled, repeatMode);
+      }
     }
   }
 
   async function toggleRepeat() {
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_cycle_repeat_if_remote');
+      if (handledRemotely) {
+        await refreshQobuzConnectRuntimeState();
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off repeat cycle to remote renderer:', err);
+      return;
+    }
+
     const result = await queueToggleRepeat();
     if (result.success) {
       const messages: Record<RepeatMode, string> = {
@@ -1720,7 +2279,9 @@
       };
       showToast(messages[result.mode], 'info');
       // Persist playback mode to session
-      saveSessionPlaybackMode(isShuffle, result.mode);
+      if (shouldPersistLocalSession()) {
+        saveSessionPlaybackMode(isShuffle, result.mode);
+      }
     }
   }
 
@@ -1757,7 +2318,21 @@
   // Skip track handlers - wired to backend queue via queueStore
   async function handleSkipBack() {
     const playerState = getPlayerState();
-    if (!playerState.currentTrack || playerState.isSkipping) return;
+    if (playerState.isSkipping) return;
+
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_skip_previous_if_remote');
+      if (handledRemotely) {
+        await refreshQobuzConnectRuntimeState();
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off previous track to remote renderer:', err);
+      showToast($t('toast.failedPreviousTrack'), 'error');
+      return;
+    }
+
+    if (!playerState.currentTrack) return;
     // If more than 3 seconds in, restart track; otherwise go to previous
     if (playerState.currentTime > 3) {
       handleSeek(0);
@@ -1783,7 +2358,21 @@
 
   async function handleSkipForward() {
     const playerState = getPlayerState();
-    if (!playerState.currentTrack || playerState.isSkipping) return;
+    if (playerState.isSkipping) return;
+
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_skip_next_if_remote');
+      if (handledRemotely) {
+        await refreshQobuzConnectRuntimeState();
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off next track to remote renderer:', err);
+      showToast($t('toast.failedNextTrack'), 'error');
+      return;
+    }
+
+    if (!playerState.currentTrack) return;
 
     setIsSkipping(true);
     try {
@@ -1825,8 +2414,8 @@
 
   // Helper to play a track from the queue (with offline skip support)
   async function playQueueTrack(track: BackendQueueTrack, skippedIds = new Set<number>(), gaplessTransition = false) {
-    const source = track.source ?? (track.is_local ? 'local' : 'qobuz');
-    const isLocal = source !== 'qobuz' || isLocalTrack(track.id);
+    const source = resolvePlaybackSource(track);
+    const isLocal = isPlaybackSourceLocal(source, isLocalTrack(track.id));
 
     // In offline mode, check if track is available
     if (offlineStatus.isOffline && !isLocal) {
@@ -1886,6 +2475,17 @@
 
   // Play a specific track from the queue panel
   async function handleQueueTrackPlay(trackId: string) {
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_play_track_if_remote', { trackId: parseInt(trackId, 10) });
+      if (handledRemotely) {
+        await refreshQobuzConnectRuntimeState();
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off queue track play to remote renderer:', err);
+      return;
+    }
+
     try {
       // Find the index in the queue
       const queueState = await getBackendQueueState();
@@ -2014,6 +2614,17 @@
 
   // Play a track from history
   async function handlePlayHistoryTrack(trackId: string) {
+    try {
+      const handledRemotely = await invoke<boolean>('v2_qconnect_play_track_if_remote', { trackId: parseInt(trackId, 10) });
+      if (handledRemotely) {
+        await refreshQobuzConnectRuntimeState();
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to hand off history track play to remote renderer:', err);
+      return;
+    }
+
     try {
       // Get the full queue state to find the track in history
       const queueState = await getBackendQueueState();
@@ -2218,24 +2829,34 @@
     if (playableTracks.length === 0) return;
 
     const artwork = album.artwork || '';
-    const queueTracks: BackendQueueTrack[] = playableTracks.map(trk => ({
-      id: trk.id,
-      title: trk.title,
-      artist: trk.artist || album.artist || 'Unknown Artist',
-      album: album.title || '',
-      duration_secs: trk.durationSeconds,
-      artwork_url: artwork || null,
-      hires: trk.hires ?? false,
-      bit_depth: trk.bitDepth ?? null,
-      sample_rate: trk.samplingRate ?? null,
-      is_local: false,
-      album_id: album.id,
-      artist_id: trk.artistId ?? album.artistId
-    }));
+    // Add in reverse order so first track ends up right after current
+    let queuedCount = 0;
+    for (let i = playableTracks.length - 1; i >= 0; i--) {
+      const trk = playableTracks[i];
+      const queued = await queueTrackNext({
+        id: trk.id,
+        title: trk.title,
+        artist: trk.artist || album.artist || 'Unknown Artist',
+        album: album.title || '',
+        duration_secs: trk.durationSeconds,
+        artwork_url: artwork || null,
+        hires: trk.hires ?? false,
+        bit_depth: trk.bitDepth ?? null,
+        sample_rate: trk.samplingRate ?? null,
+        is_local: false,
+        album_id: album.id,
+        artist_id: trk.artistId ?? album.artistId,
+        streamable: trk.streamable ?? true,
+        source: 'qobuz',
+        parental_warning: trk.parental_warning ?? false
+      }, false, { silent: true });
+      if (queued) {
+        queuedCount += 1;
+      }
+    }
 
-    const success = await addTracksToQueueNext(queueTracks);
-    if (success) {
-      showToast($t('toast.playingTracksNext', { values: { count: queueTracks.length } }), 'success');
+    if (queuedCount > 0) {
+      showToast($t('toast.playingTracksNext', { values: { count: queuedCount } }), 'success');
     } else {
       showToast($t('toast.failedAddToQueue'), 'error');
     }
@@ -2270,9 +2891,16 @@
       artist_id: trk.artistId ?? album.artistId
     }));
 
-    const success = await addTracksToQueue(queueTracks);
-    if (success) {
-      showToast($t('toast.addedTracksToQueue', { values: { count: queueTracks.length } }), 'success');
+    let queuedCount = 0;
+    for (const queueTrack of queueTracks) {
+      const queued = await queueTrackLater(queueTrack, false, { silent: true });
+      if (queued) {
+        queuedCount += 1;
+      }
+    }
+
+    if (queuedCount > 0) {
+      showToast($t('toast.addedTracksToQueue', { values: { count: queuedCount } }), 'success');
     } else {
       showToast($t('toast.failedAddToQueue'), 'error');
     }
@@ -2847,72 +3475,84 @@
     if (!sessionPersistEnabled) {
       console.log('[Session] Session persistence disabled, skipping restore');
     }
-    if (sessionPersistEnabled) try {
-      const session = await loadSessionState();
+    try {
+      await refreshQobuzConnectRuntimeState();
+      const qconnectRuntimeActive = Boolean(qobuzConnectStatus.running || isQconnectRemoteModeActive());
 
-      // Restore queue + track (visual only — paused at 0:00)
-      if (session && session.queue_tracks.length > 0) {
-        console.log('[Session] Restoring previous session...');
-
-        const tracks: BackendQueueTrack[] = session.queue_tracks.map(trk => ({
-          id: trk.id,
-          title: trk.title,
-          artist: trk.artist,
-          album: trk.album,
-          duration_secs: trk.duration_secs,
-          artwork_url: trk.artwork_url,
-          hires: trk.hires ?? false,
-          bit_depth: trk.bit_depth ?? null,
-          sample_rate: trk.sample_rate ?? null,
-          is_local: trk.is_local ?? false,
-          album_id: trk.album_id ?? null,
-          artist_id: trk.artist_id ?? null
-        }));
-
-        await setQueue(tracks, session.current_index ?? 0, true);
-
-        // Restore shuffle/repeat mode
-        if (session.shuffle_enabled) {
-          await invoke('v2_set_shuffle', { enabled: true });
-        }
-        if (session.repeat_mode !== 'off') {
-          const v2Mode = session.repeat_mode.charAt(0).toUpperCase() + session.repeat_mode.slice(1);
-          await invoke('v2_set_repeat_mode', { mode: v2Mode });
-        }
-
-        // Restore volume
-        playerSetVolume(Math.round(session.volume * 100));
-
-        // Visual-only track restore: show in player bar paused at 0:00
-        if (session.current_index !== null && tracks[session.current_index]) {
-          const track = tracks[session.current_index];
-
-          // Use cached data for instant display (no network fetch needed)
-          const quality = track.hires
-            ? `${track.bit_depth ?? 24}/${track.sample_rate ? track.sample_rate / 1000 : 96}`
-            : 'CD';
-          setCurrentTrack({
-            id: track.id,
-            title: track.title,
-            artist: track.artist,
-            album: track.album,
-            artwork: track.artwork_url || '',
-            duration: track.duration_secs,
-            quality,
-            bitDepth: track.bit_depth ?? undefined,
-            samplingRate: track.sample_rate ?? undefined,
-          });
-
-          setPendingSessionRestore(track.id);
-          console.log(`[Session] Track ${track.id} restored (ready to play from start)`);
-        }
-
-        console.log('[Session] Session restored successfully');
+      if (qconnectRuntimeActive) {
+        await syncQueueState();
       }
 
-      // Restore last page (opt-in via settings)
-      if (session) {
-        restoreLastView(session);
+      if (sessionPersistEnabled && !qconnectRuntimeActive) {
+        const session = await loadSessionState();
+
+        // Restore queue + track (visual only — paused at 0:00)
+        if (session && session.queue_tracks.length > 0) {
+          console.log('[Session] Restoring previous session...');
+
+          const tracks: BackendQueueTrack[] = session.queue_tracks.map(trk => ({
+            id: trk.id,
+            title: trk.title,
+            artist: trk.artist,
+            album: trk.album,
+            duration_secs: trk.duration_secs,
+            artwork_url: trk.artwork_url,
+            hires: trk.hires ?? false,
+            bit_depth: trk.bit_depth ?? null,
+            sample_rate: trk.sample_rate ?? null,
+            is_local: trk.is_local ?? false,
+            album_id: trk.album_id ?? null,
+            artist_id: trk.artist_id ?? null
+          }));
+
+          await setQueue(tracks, session.current_index ?? 0, true);
+
+          // Restore shuffle/repeat mode
+          if (session.shuffle_enabled) {
+            await invoke('v2_set_shuffle', { enabled: true });
+          }
+          if (session.repeat_mode !== 'off') {
+            const v2Mode = session.repeat_mode.charAt(0).toUpperCase() + session.repeat_mode.slice(1);
+            await invoke('v2_set_repeat_mode', { mode: v2Mode });
+          }
+
+          // Restore volume
+          playerSetVolume(Math.round(session.volume * 100));
+
+          // Visual-only track restore: show in player bar paused at 0:00
+          if (session.current_index !== null && tracks[session.current_index]) {
+            const track = tracks[session.current_index];
+
+            // Use cached data for instant display (no network fetch needed)
+            const quality = track.hires
+              ? `${track.bit_depth ?? 24}/${track.sample_rate ? track.sample_rate / 1000 : 96}`
+              : 'CD';
+            setCurrentTrack({
+              id: track.id,
+              title: track.title,
+              artist: track.artist,
+              album: track.album,
+              artwork: track.artwork_url || '',
+              duration: track.duration_secs,
+              quality,
+              bitDepth: track.bit_depth ?? undefined,
+              samplingRate: track.sample_rate ?? undefined,
+            });
+
+            // First play will load a fresh stream instead of seeking
+            setPendingSessionRestore(track.id);
+            console.log(`[Session] Track ${track.id} restored visually (paused at 0:00)`);
+          }
+
+          console.log('[Session] Session restored successfully');
+        }
+
+        // Restore last page (opt-in via settings)
+        if (session) {
+          restoreLastView(session);
+        }
+      } else if (qconnectRuntimeActive) {
+        console.log('[Session] Skipping local session restore while Qobuz Connect remote mode is active');
       }
     } catch (err) {
       console.error('[Session] Failed to restore session:', err);
@@ -2924,9 +3564,15 @@
     initCustomAlbumCoverStore().catch(err => console.debug('[CustomAlbumCovers] Init deferred:', err));
     refreshUpdatePreferences().catch(err => console.debug('[Updates] Prefs refresh deferred:', err));
 
-    // Load audio settings (normalization state) now that session is active
-    invoke<{ normalization_enabled: boolean }>('v2_get_audio_settings').then((settings) => {
+    // Load audio settings (normalization state + backend info) now that session is active
+    invoke<{ normalization_enabled: boolean; backend_type: string | null; alsa_plugin: string | null }>('v2_get_audio_settings').then((settings) => {
       normalizationEnabled = settings.normalization_enabled;
+      const alsaHw = settings.backend_type === 'Alsa' && settings.alsa_plugin === 'Hw';
+      isAlsaDirectHw = alsaHw;
+      if (alsaHw && volume !== 100) {
+        playerSetVolume(100);
+        volume = 100;
+      }
     }).catch((err) => {
       console.error('[AudioSettings] Failed to load:', err);
     });
@@ -3013,53 +3659,45 @@
         if (contextId) {
           setRestoredLocalAlbumId(contextId);
           restoreView('library-album');
+          return;
         }
-        return;
+        break;
+      case 'purchase-album':
+        if (contextId) {
+          selectedPurchaseAlbumId = contextId;
+          restoreView('purchase-album');
+          return;
+        }
+        break;
       default:
-        // Simple views (search, library, settings, favorites-*, etc.)
-        restoreView(view);
-        return;
+        if (isSessionRestoreSafeView(view)) {
+          restoreView(view);
+          return;
+        }
+        break;
     }
+
+    const fallbackView = getSessionFallbackView(view);
+    console.warn('[Session] Skipping invalid last-view restore and falling back:', {
+      view,
+      contextId,
+      contextType,
+      fallbackView,
+    });
+    restoreView(fallbackView);
   }
 
   // Save session state before window closes
   async function saveSessionBeforeClose() {
-    if (!isLoggedIn || !sessionPersistEnabled) return;
+    if (!isLoggedIn) return;
+    if (!shouldPersistLocalSession()) return;
 
     try {
-      // Build view context from current navigation state
-      const currentView = activeView;
-      let viewContextId: string | null = null;
-      let viewContextType: string | null = null;
-
-      switch (currentView) {
-        case 'album':
-          if (selectedAlbum?.id) {
-            viewContextId = String(selectedAlbum.id);
-            viewContextType = 'album';
-          }
-          break;
-        case 'artist':
-          if (selectedArtist?.id) {
-            viewContextId = String(selectedArtist.id);
-            viewContextType = 'artist';
-          }
-          break;
-        case 'playlist':
-          if (selectedPlaylistId) {
-            viewContextId = String(selectedPlaylistId);
-            viewContextType = 'playlist';
-          }
-          break;
-        case 'library-album': {
-          const localAlbumId = getSelectedLocalAlbumId();
-          if (localAlbumId) {
-            viewContextId = localAlbumId;
-            viewContextType = 'library-album';
-          }
-          break;
-        }
-      }
+      const {
+        view: viewToPersist,
+        viewContextId,
+        viewContextType,
+      } = getPersistedSessionViewState();
 
       // Get ALL queue tracks from backend (uncapped, for full persistence)
       const snapshot = await invoke<{ tracks: BackendQueueTrack[]; current_index: number | null }>('v2_get_all_queue_tracks');
@@ -3089,7 +3727,7 @@
         isShuffle,
         repeatMode,
         isPlaying,
-        currentView,
+        viewToPersist,
         viewContextId,
         viewContextType
       );
@@ -3122,9 +3760,11 @@
   // Debounced full session save (coalesces rapid state changes into a single save)
   let sessionSaveDebounce: ReturnType<typeof setTimeout> | null = null;
   function debouncedFullSessionSave() {
+    if (!shouldPersistLocalSession()) return;
     if (sessionSaveDebounce) clearTimeout(sessionSaveDebounce);
     sessionSaveDebounce = setTimeout(() => {
       sessionSaveDebounce = null;
+      if (!shouldPersistLocalSession()) return;
       saveSessionBeforeClose();
     }, 2000);
   }
@@ -3133,8 +3773,10 @@
   let sessionSaveInterval: ReturnType<typeof setInterval> | null = null;
 
   $effect(() => {
+    const qconnectRemoteModeActive = isQconnectRemoteModeActive();
+
     // Start periodic save when playing, stop when paused/stopped
-    if (isPlaying && currentTrack && isLoggedIn) {
+    if (isPlaying && currentTrack && isLoggedIn && !qconnectRemoteModeActive) {
       if (!sessionSaveInterval) {
         sessionSaveInterval = setInterval(() => {
           saveSessionBeforeClose();
@@ -3183,6 +3825,43 @@
   onMount(() => {
     // Bootstrap app (theme, mouse nav, Last.fm restore)
     const { cleanup: cleanupBootstrap } = bootstrapApp();
+    void refreshQobuzConnectRuntimeState();
+    const qobuzConnectStatusInterval = setInterval(() => {
+      if (isQconnectPanelOpen || isQobuzConnectConnected) {
+        void refreshQobuzConnectRuntimeState();
+      } else {
+        void refreshQobuzConnectStatus();
+      }
+    }, 5000);
+
+    // Periodic QConnect position reports (every 2s) so controllers see track progress.
+    // Only fires when connected and playing. queue_item_ids auto-filled by backend.
+    const qconnectPositionReportInterval = setInterval(() => {
+      if (isQobuzConnectConnected && !qconnectPeerRendererActive && isPlaying && currentTrack) {
+        if (shouldSkipQconnectPlaybackReport(currentTrack?.id ?? null)) {
+          return;
+        }
+        // QConnect protocol uses milliseconds for position/duration.
+        const positionMs = Math.round((currentTime || 0) * 1000);
+        const durationMs = Math.round((duration || 0) * 1000);
+        const payload = {
+          playingState: 2,
+          currentPosition: positionMs,
+          duration: durationMs,
+          currentQueueItemId: null,
+          nextQueueItemId: null,
+          currentTrackId: currentTrack?.id ?? null
+        };
+        logQconnectPlaybackReport('interval', payload);
+        invoke('v2_qconnect_report_playback_state', payload).catch((err) => {
+          pushQobuzConnectDiagnostic('qconnect:report_playback_state:error', 'warn', {
+            source: 'interval',
+            error: String(err),
+            payload
+          });
+        });
+      }
+    }, 2000);
 
     // Keyboard navigation
     document.addEventListener('keydown', handleKeydown);
@@ -3308,6 +3987,7 @@
       isFullScreenOpen = uiState.isFullScreenOpen;
       isFocusModeOpen = uiState.isFocusModeOpen;
       isCastPickerOpen = uiState.isCastPickerOpen;
+      isQconnectPanelOpen = uiState.isQconnectPanelOpen;
       isPlaylistModalOpen = uiState.isPlaylistModalOpen;
       playlistModalMode = uiState.playlistModalMode;
       playlistModalTrackIds = uiState.playlistModalTrackIds;
@@ -3421,33 +4101,74 @@
     let prevTrackId: number | null = null;
     const unsubscribePlayer = subscribePlayer(() => {
       const playerState = getPlayerState();
+      const remotePeerActive = qconnectPeerRendererActive;
       const wasPlaying = isPlaying;
+      volume = playerState.volume;
+      normalizationGain = playerState.normalizationGain;
+      if (remotePeerActive) {
+        return;
+      }
       currentTrack = playerState.currentTrack;
       isPlaying = playerState.isPlaying;
       currentTime = playerState.currentTime;
       duration = playerState.duration;
-      volume = playerState.volume;
       isFavorite = playerState.isFavorite;
-      normalizationGain = playerState.normalizationGain;
+      const allowLocalSessionPersistence = shouldPersistLocalSession();
 
       // Save position during playback (debounced to every 5s)
-      if (isPlaying && currentTrack && currentTime > 0) {
+      if (allowLocalSessionPersistence && isPlaying && currentTrack && currentTime > 0) {
         debouncedSavePosition(Math.floor(currentTime));
       }
 
       // Flush position save immediately when pausing
-      if (wasPlaying && !isPlaying && currentTrack && currentTime > 0) {
+      if (allowLocalSessionPersistence && wasPlaying && !isPlaying && currentTrack && currentTime > 0) {
         flushPositionSave(Math.floor(currentTime));
       }
 
       // Full session save on track change or pause (debounced 2s)
       const trackId = currentTrack?.id ?? null;
-      if (trackId !== prevTrackId) {
+      const trackChanged = trackId !== prevTrackId;
+      // Always update prevTrackId (even during QConnect mode) to prevent
+      // the QConnect reporter from treating every tick as a track change.
+      if (trackChanged) {
         prevTrackId = trackId;
+      }
+      if (allowLocalSessionPersistence && trackChanged) {
         if (trackId !== null) debouncedFullSessionSave();
       }
-      if (wasPlaying && !isPlaying && currentTrack) {
+      if (allowLocalSessionPersistence && wasPlaying && !isPlaying && currentTrack) {
         debouncedFullSessionSave();
+      }
+
+      // QConnect renderer state relay: report state transitions to server.
+      // QConnect protocol uses milliseconds for position/duration.
+      // queue_item_ids are auto-filled by the backend from renderer state.
+      if (isQobuzConnectConnected && !qconnectPeerRendererActive) {
+        const playingState = isPlaying ? 2 : (currentTrack ? 3 : 1);
+        const positionMs = Math.round((currentTime || 0) * 1000);
+        const durationMs = Math.round((playerState.duration || 0) * 1000);
+        // Report immediately on play/pause change or track change
+        if (wasPlaying !== isPlaying || trackChanged) {
+          if (shouldSkipQconnectPlaybackReport(currentTrack?.id ?? null)) {
+            return;
+          }
+          const payload = {
+            playingState: playingState,
+            currentPosition: positionMs,
+            duration: durationMs,
+            currentQueueItemId: null,
+            nextQueueItemId: null,
+            currentTrackId: currentTrack?.id ?? null
+          };
+          logQconnectPlaybackReport('player_transition', payload);
+          invoke('v2_qconnect_report_playback_state', payload).catch((err) => {
+            pushQobuzConnectDiagnostic('qconnect:report_playback_state:error', 'warn', {
+              source: 'player_transition',
+              error: String(err),
+              payload
+            });
+          });
+        }
       }
 
       // MiniPlayer IPC - DISABLED: incomplete feature, causes unnecessary IPC overhead
@@ -3513,6 +4234,12 @@
 
     // Set up track ended callback for auto-advance
     setOnTrackEnded(async () => {
+      // When QConnect controls playback, the server/controller manages track advancement.
+      // The frontend must NOT auto-advance or it will fight the remote controller.
+      if (qconnectSuppressLocalPlaybackAutomation) {
+        console.log('[Player] Auto-advance suppressed: QConnect is controlling playback');
+        return;
+      }
       if (!isAutoplayEnabled()) {
         setQueueEnded(true);
         await stopPlayback();
@@ -3551,6 +4278,7 @@
 
     // Set up resume-from-stop callback: re-play the queue's current track
     setOnResumeFromStop(async () => {
+      if (qconnectSuppressLocalPlaybackAutomation) return;
       const queueState = await getBackendQueueState();
       if (!queueState) return;
       const tryQueueIndices = async (indices: number[]): Promise<BackendQueueTrack | null> => {
@@ -3612,8 +4340,12 @@
       }
     });
 
+    setOnTogglePlayOverride(handleQconnectTogglePlayOverride);
+
     // Gapless: provide callback to get next track ID for pre-queuing
     setGaplessGetNextTrackId(() => {
+      // Only suppress local gapless when a peer renderer owns playback.
+      if (qconnectSuppressLocalPlaybackAutomation) return null;
       try {
         const queueState = getQueueState();
         if (queueState.queue.length > 0) {
@@ -3639,6 +4371,7 @@
 
     // Gapless: handle transition when backend switches to pre-queued track
     setOnGaplessTransition(async (trackId: number) => {
+      if (qconnectSuppressLocalPlaybackAutomation) return;
       console.log('[Gapless] Handling transition to track', trackId);
       // Advance the queue to match backend state
       const advanced = await nextTrack();
@@ -3660,6 +4393,11 @@
     let unlistenTrayPrevious: UnlistenFn | null = null;
     let unlistenMediaControls: UnlistenFn | null = null;
     let unlistenLinkResolved: UnlistenFn | null = null;
+    let unlistenQconnectEvent: UnlistenFn | null = null;
+    let unlistenQconnectError: UnlistenFn | null = null;
+    let unlistenQconnectAdmissionBlocked: UnlistenFn | null = null;
+    let unlistenQconnectDiagnostic: UnlistenFn | null = null;
+    let unlistenQconnectRendererReportDebug: UnlistenFn | null = null;
 
     (async () => {
       const unlisten1 = await listen('tray:play_pause', () => {
@@ -3709,9 +4447,17 @@
           case 'previous':
             await handleSkipBack();
             break;
-          case 'stop':
-            await stopPlayback();
+          case 'stop': {
+            try {
+              const handledRemotely = await invoke<boolean>('v2_qconnect_stop_if_remote');
+              if (!handledRemotely) {
+                await stopPlayback();
+              }
+            } catch {
+              await stopPlayback();
+            }
             break;
+          }
           case 'seek': {
             const direction = payload.direction === 'backward' ? -1 : 1;
             const target = playerState.currentTime + direction * MEDIA_SEEK_FALLBACK_SECS;
@@ -3736,7 +4482,7 @@
               const newVolume = Math.round(normalized * 100);
               // Only update if volume actually changed (prevents MPRIS feedback loop)
               if (newVolume !== volume) {
-                await playerSetVolume(newVolume);
+                await handleVolumeChange(newVolume);
               }
             }
             break;
@@ -3756,6 +4502,93 @@
       });
       if (disposed) { unlisten5(); return; }
       unlistenLinkResolved = unlisten5;
+
+      const unlisten6 = await listen('qconnect:event', (event) => {
+        pushQobuzConnectDiagnostic('qconnect:event', 'info', event.payload);
+        void refreshQobuzConnectRuntimeState();
+
+        const payload = event.payload;
+        if (payload && typeof payload === 'object') {
+          const payloadObj = payload as Record<string, unknown>;
+          // When QConnect connects while QBZ is already playing, push the current
+          // queue to the server so controllers immediately see the right tracks.
+          if ('TransportConnected' in payloadObj) {
+            console.log('[QConnect] TransportConnected detected, checking if local queue should be pushed');
+            if (isPlaying && currentTrack) {
+              // Delay briefly so the QConnect session setup (ask_for_queue_state etc.)
+              // completes before we try to push our queue.
+              setTimeout(() => {
+                const queueState = getQueueState();
+                const trackIds = queueState.queue
+                  .map(item => item.trackId ?? parseInt(item.id))
+                  .filter((id): id is number => typeof id === 'number' && !isNaN(id) && id > 0);
+                if (trackIds.length > 0) {
+                  console.log('[QConnect] Pushing local queue to remote on connect (%d tracks)', trackIds.length);
+                  loadQconnectQueue(trackIds, 0).then(ok => {
+                    if (ok) console.log('[QConnect] Local queue pushed to remote on connect');
+                    else console.warn('[QConnect] Local queue NOT pushed on connect (rejected or failed)');
+                  }).catch(err => console.error('[QConnect] Local queue push on connect error:', err));
+                }
+              }, 2000);
+            }
+          }
+
+          // Sync QBZ local queue when QConnect remote queue changes or
+          // renderer commands move the current track (next/prev from controllers).
+          const needsQueueSync =
+            'QueueUpdated' in payload ||
+            'RendererCommandApplied' in payload ||
+            'PendingActionCompleted' in payload;
+          if (needsQueueSync) {
+            syncQueueState();
+          }
+
+          const needsQconnectSnapshotRefresh =
+            'QueueUpdated' in payload ||
+            'RendererUpdated' in payload ||
+            'RendererCommandApplied' in payload ||
+            'PendingActionCompleted' in payload ||
+            'SessionManagementEvent' in payload;
+          if (needsQconnectSnapshotRefresh) {
+            void refreshQobuzConnectRuntimeState();
+          }
+        }
+      });
+      if (disposed) { unlisten6(); return; }
+      unlistenQconnectEvent = unlisten6;
+
+      const unlisten7 = await listen<string>('qconnect:error', (event) => {
+        pushQobuzConnectDiagnostic('qconnect:error', 'error', event.payload);
+        qobuzConnectStatus = {
+          ...qobuzConnectStatus,
+          last_error: event.payload
+        };
+      });
+      if (disposed) { unlisten7(); return; }
+      unlistenQconnectError = unlisten7;
+
+      const unlisten8 = await listen<QconnectAdmissionBlockedEvent>('qconnect:admission_blocked', (event) => {
+        pushQobuzConnectDiagnostic('qconnect:admission_blocked', 'warn', event.payload);
+        showToast($t(qconnectAdmissionReasonKey(event.payload.reason)), 'warning');
+      });
+      if (disposed) { unlisten8(); return; }
+      unlistenQconnectAdmissionBlocked = unlisten8;
+
+      const unlisten9 = await listen<QconnectDiagnosticsPayload>('qconnect:diagnostic', (event) => {
+        pushQobuzConnectDiagnostic(
+          event.payload.channel,
+          event.payload.level ?? 'info',
+          event.payload.payload
+        );
+      });
+      if (disposed) { unlisten9(); return; }
+      unlistenQconnectDiagnostic = unlisten9;
+
+      const unlisten10 = await listen<QconnectRendererReportDebugPayload>('qconnect:renderer_report_debug', (event) => {
+        pushQobuzConnectDiagnostic('qconnect:renderer_report_debug', 'info', event.payload);
+      });
+      if (disposed) { unlisten10(); return; }
+      unlistenQconnectRendererReportDebug = unlisten10;
     })();
 
     return () => {
@@ -3767,12 +4600,19 @@
       unlistenTrayPrevious?.();
       unlistenMediaControls?.();
       unlistenLinkResolved?.();
+      unlistenQconnectEvent?.();
+      unlistenQconnectError?.();
+      unlistenQconnectAdmissionBlocked?.();
+      unlistenQconnectDiagnostic?.();
+      unlistenQconnectRendererReportDebug?.();
       // Save session before cleanup
       saveSessionBeforeClose();
       cleanupBootstrap();
       document.removeEventListener('keydown', handleKeydown);
       document.removeEventListener('contextmenu', handleGlobalContextMenu);
       unregisterAll(); // Cleanup keybinding actions
+      clearInterval(qobuzConnectStatusInterval);
+      clearInterval(qconnectPositionReportInterval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       stopOfflineCacheEventListeners();
@@ -3794,6 +4634,7 @@
       unsubscribeLyrics();
       unsubscribeContentSidebar();
       unsubscribeCast();
+      setOnTogglePlayOverride(null);
       stopLyricsWatching();
       stopActiveLineUpdates();
       stopPolling();
@@ -4088,6 +4929,15 @@
           subscription={userInfo?.subscription}
           subscriptionValidUntil={userInfo?.subscriptionValidUntil}
           showTitleBar={showTitleBar}
+          onQconnectDevButtonChange={(v) => { showQconnectDevButton = v; }}
+          onAudioBackendChange={(backendType, alsaPlugin) => {
+            const alsaHw = backendType === 'Alsa' && alsaPlugin === 'Hw';
+            isAlsaDirectHw = alsaHw;
+            if (alsaHw && volume !== 100) {
+              playerSetVolume(100);
+              volume = 100;
+            }
+          }}
         />
       {:else if activeView === 'album' && !selectedAlbum}
         <!-- Defensive fallback: album view active but no data loaded (#43) -->
@@ -4143,6 +4993,12 @@
           onCreateAlbumRadio={handleCreateAlbumRadio}
           {radioLoading}
         />
+      {:else if activeView === 'artist' && !selectedArtist}
+        <!-- Defensive fallback: artist view active but no data loaded yet -->
+        <div class="view-error">
+          <p>{$t('toast.failedLoadArtist')}</p>
+          <button class="view-error-back" onclick={navGoBack}>{$t('actions.back')}</button>
+        </div>
       {:else if activeView === 'artist' && selectedArtist}
         <ArtistDetailView
           artist={selectedArtist}
@@ -4254,6 +5110,12 @@
           activeTrackId={currentTrack?.id ?? null}
           isPlaybackActive={isPlaying}
         />
+      {:else if activeView === 'playlist' && !selectedPlaylistId}
+        <!-- Defensive fallback: playlist view active but no data loaded yet -->
+        <div class="view-error">
+          <p>{$t('toast.failedLoadPlaylist')}</p>
+          <button class="view-error-back" onclick={navGoBack}>{$t('actions.back')}</button>
+        </div>
       {:else if activeView === 'playlist' && selectedPlaylistId}
         <PlaylistDetailView
           playlistId={selectedPlaylistId}
@@ -4591,6 +5453,12 @@
           onAlbumClick={handleAlbumClick}
           onAlbumPlay={playAlbumById}
         />
+      {:else}
+        <!-- Catch-all fallback: view has no matching data, show loading/error -->
+        <div class="view-error">
+          <p>{$t('actions.loading')}</p>
+          <button class="view-error-back" onclick={() => navigateTo('home')}>{$t('actions.backToHome')}</button>
+        </div>
       {/if}
     </main>
 
@@ -4652,11 +5520,11 @@
         originalBitDepth={currentTrack.originalBitDepth}
         originalSamplingRate={currentTrack.originalSamplingRate}
         format={currentTrack.format}
-        {isPlaying}
+        isPlaying={effectiveIsPlaying}
         onTogglePlay={togglePlay}
         onSkipBack={handleSkipBack}
         onSkipForward={handleSkipForward}
-        {currentTime}
+        currentTime={effectiveCurrentTime}
         {duration}
         onSeek={handleSeek}
         {volume}
@@ -4675,6 +5543,8 @@
         onOpenFullScreen={openFullScreen}
         onCast={openCastPicker}
         {isCastConnected}
+        onQobuzConnect={openQobuzConnectPanelFromNowPlaying}
+        {isQobuzConnectConnected}
         onToggleLyrics={toggleLyricsSidebar}
         lyricsActive={lyricsSidebarVisible}
         onArtistClick={() => {
@@ -4703,6 +5573,11 @@
           }
         }}
         explicit={currentTrack?.parental_warning === true}
+        qconnectSessionSnapshot={qobuzConnectSessionSnapshot}
+        onToggleQconnectConnection={handleQobuzConnectButton}
+        qconnectBusy={qobuzConnectBusy}
+        {showQconnectDevButton}
+        volumeLocked={isAlsaDirectHw}
       />
     {:else}
       <NowPlayingBar
@@ -4714,10 +5589,17 @@
         onOpenFullScreen={openFullScreen}
         onCast={openCastPicker}
         {isCastConnected}
+        onQobuzConnect={openQobuzConnectPanelFromNowPlaying}
+        {isQobuzConnectConnected}
         queueOpen={isQueueOpen}
         {volume}
         onVolumeChange={handleVolumeChange}
         controlsDisabled={queue.length === 0}
+        qconnectSessionSnapshot={qobuzConnectSessionSnapshot}
+        onToggleQconnectConnection={handleQobuzConnectButton}
+        qconnectBusy={qobuzConnectBusy}
+        {showQconnectDevButton}
+        volumeLocked={isAlsaDirectHw}
       />
     {/if}
 
@@ -4741,15 +5623,16 @@
         originalBitDepth={currentTrack.originalBitDepth}
         originalSamplingRate={currentTrack.originalSamplingRate}
         format={currentTrack.format}
-        {isPlaying}
+        isPlaying={effectiveIsPlaying}
         onTogglePlay={togglePlay}
         onSkipBack={handleSkipBack}
         onSkipForward={handleSkipForward}
-        {currentTime}
+        currentTime={effectiveCurrentTime}
         {duration}
         onSeek={handleSeek}
         {volume}
         onVolumeChange={handleVolumeChange}
+        onToggleMute={handleToggleMute}
         {isShuffle}
         onToggleShuffle={toggleShuffle}
         {repeatMode}
@@ -4936,6 +5819,20 @@
     <CastPicker
       isOpen={isCastPickerOpen}
       onClose={closeCastPicker}
+    />
+
+    <QconnectPanel
+      isOpen={isQconnectPanelOpen}
+      onClose={closeQconnectPanel}
+      status={qobuzConnectStatus}
+      busy={qobuzConnectBusy}
+      onToggleConnection={handleQobuzConnectButton}
+      queueSnapshot={qobuzConnectQueueSnapshot}
+      rendererSnapshot={qobuzConnectRendererSnapshot}
+      sessionSnapshot={qobuzConnectSessionSnapshot}
+      showDevDiagnostics={showQconnectDevDiagnostics}
+      diagnosticsLogs={qobuzConnectDiagnosticsLogs}
+      onClearDiagnostics={clearQobuzConnectDiagnostics}
     />
 
 

@@ -24,23 +24,13 @@ pub struct BundleTokens {
 /// Extract app_id, secrets, and OAuth private_key from Qobuz bundle
 pub async fn extract_bundle_tokens(client: &Client) -> Result<BundleTokens> {
     // Step 1: Get login page to find bundle URL
-    let login_page = client
-        .get(LOGIN_PAGE_URL)
-        .send()
-        .await?
-        .text()
-        .await?;
+    let login_page = client.get(LOGIN_PAGE_URL).send().await?.text().await?;
 
     let bundle_url = extract_bundle_url(&login_page)?;
     let full_bundle_url = format!("{}{}", BUNDLE_BASE_URL, bundle_url);
 
     // Step 2: Fetch the bundle
-    let bundle_content = client
-        .get(&full_bundle_url)
-        .send()
-        .await?
-        .text()
-        .await?;
+    let bundle_content = client.get(&full_bundle_url).send().await?.text().await?;
 
     // Step 3: Extract app_id
     let app_id = extract_app_id(&bundle_content)?;
@@ -62,13 +52,18 @@ pub async fn extract_bundle_tokens(client: &Client) -> Result<BundleTokens> {
         log::debug!("OAuth private_key not found in bundle (older bundle version)");
     }
 
-    Ok(BundleTokens { app_id, secrets, private_key })
+    Ok(BundleTokens {
+        app_id,
+        secrets,
+        private_key,
+    })
 }
 
 fn extract_bundle_url(html: &str) -> Result<String> {
     // Pattern: <script src="/resources/X.X.X-bXXX/bundle.js"></script>
-    let re = Regex::new(r#"<script src="(/resources/\d+\.\d+\.\d+-[a-z]\d{3}/bundle\.js)"></script>"#)
-        .expect("Invalid regex");
+    let re =
+        Regex::new(r#"<script src="(/resources/\d+\.\d+\.\d+-[a-z]\d{3}/bundle\.js)"></script>"#)
+            .expect("Invalid regex");
 
     re.captures(html)
         .and_then(|caps| caps.get(1))
@@ -78,8 +73,7 @@ fn extract_bundle_url(html: &str) -> Result<String> {
 
 fn extract_app_id(bundle: &str) -> Result<String> {
     // Pattern: production:{api:{appId:"XXXXXXXXX"
-    let re = Regex::new(r#"production:\{api:\{appId:"(?P<app_id>\d{9})""#)
-        .expect("Invalid regex");
+    let re = Regex::new(r#"production:\{api:\{appId:"(?P<app_id>\d{9})""#).expect("Invalid regex");
 
     re.captures(bundle)
         .and_then(|caps| caps.name("app_id"))
@@ -106,10 +100,16 @@ fn extract_secrets(bundle: &str) -> Result<Vec<String>> {
         }
     }
 
-    log::debug!("Found {} seeds with timezones: {:?}", seeds.len(), timezones);
+    log::debug!(
+        "Found {} seeds with timezones: {:?}",
+        seeds.len(),
+        timezones
+    );
 
     if seeds.is_empty() {
-        return Err(ApiError::BundleExtractionError("No seeds found".to_string()));
+        return Err(ApiError::BundleExtractionError(
+            "No seeds found".to_string(),
+        ));
     }
 
     // Build dynamic regex with found timezones (capitalize first letter for matching)
@@ -149,7 +149,11 @@ fn extract_secrets(bundle: &str) -> Result<Vec<String>> {
             if let Some(seed) = seeds.get(&tz_lower) {
                 // Concatenate seed + info + extras, remove last 44 chars, base64 decode
                 let combined = format!("{}{}{}", seed, info.as_str(), extras.as_str());
-                log::debug!("Combined length: {}, timezone: {}", combined.len(), tz_lower);
+                log::debug!(
+                    "Combined length: {}, timezone: {}",
+                    combined.len(),
+                    tz_lower
+                );
 
                 if combined.len() > 44 {
                     let trimmed = &combined[..combined.len() - 44];
@@ -159,7 +163,10 @@ fn extract_secrets(bundle: &str) -> Result<Vec<String>> {
                     ) {
                         Ok(decoded) => {
                             if let Ok(secret) = String::from_utf8(decoded) {
-                                log::info!("Successfully extracted secret for timezone: {}", tz_lower);
+                                log::info!(
+                                    "Successfully extracted secret for timezone: {}",
+                                    tz_lower
+                                );
                                 secrets.push(secret);
                             }
                         }
@@ -190,8 +197,7 @@ fn extract_secrets(bundle: &str) -> Result<Vec<String>> {
 
 fn extract_private_key(bundle: &str) -> Option<String> {
     // Pattern: privateKey:"VALUE" (the static OAuth key used in /oauth/callback)
-    let re = Regex::new(r#"privateKey:\s*"(?P<key>[A-Za-z0-9]{6,30})""#)
-        .expect("Invalid regex");
+    let re = Regex::new(r#"privateKey:\s*"(?P<key>[A-Za-z0-9]{6,30})""#).expect("Invalid regex");
 
     re.captures(bundle)
         .and_then(|caps| caps.name("key"))

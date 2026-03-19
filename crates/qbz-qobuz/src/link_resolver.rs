@@ -135,7 +135,9 @@ fn build_resolved_link(entity_type: &str, raw_id: &str) -> Result<ResolvedLink, 
                 .map_err(|_| LinkResolverError::InvalidId(raw_id.to_string()))?;
             Ok(ResolvedLink::OpenPlaylist(id))
         }
-        _ => Err(LinkResolverError::UnknownEntityType(entity_type.to_string())),
+        _ => Err(LinkResolverError::UnknownEntityType(
+            entity_type.to_string(),
+        )),
     }
 }
 

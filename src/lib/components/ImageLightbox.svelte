@@ -1,5 +1,6 @@
 <script lang="ts">
   import { X } from 'lucide-svelte';
+  import { cachedSrc } from '$lib/actions/cachedImage';
 
   interface Props {
     isOpen: boolean;
@@ -44,7 +45,7 @@
   <div class="lightbox-overlay" use:portal onclick={handleBackdropClick} role="presentation">
     <div class="lightbox-image-wrapper">
       <img
-        {src}
+        use:cachedSrc={src}
         {alt}
         class="lightbox-image"
       />

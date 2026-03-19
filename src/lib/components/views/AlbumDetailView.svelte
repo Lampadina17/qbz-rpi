@@ -11,6 +11,7 @@
     removeCustomAlbumCover as removeCustomCoverFromStore
   } from '$lib/stores/customAlbumCoverStore';
   import { ArrowLeft, Play, Shuffle, Heart, Radio, CloudDownload, ChevronLeft, ChevronRight, Loader2, CheckSquare, BookOpen } from 'lucide-svelte';
+  import { cachedSrc } from '$lib/actions/cachedImage';
   import AlbumCard from '../AlbumCard.svelte';
   import TrackRow from '../TrackRow.svelte';
   import AlbumMenu from '../AlbumMenu.svelte';
@@ -492,7 +493,7 @@
       role="button"
       tabindex="0"
     >
-      <img src={coverOverride ?? album.artwork} alt={album.title} />
+      <img use:cachedSrc={coverOverride ?? album.artwork} alt={album.title} />
     </div>
 
     <!-- Album Metadata -->

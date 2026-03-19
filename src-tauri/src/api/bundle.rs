@@ -46,7 +46,11 @@ pub async fn extract_bundle_tokens(client: &Client) -> Result<BundleTokens> {
     // Step 5: Extract OAuth private_key (optional)
     let private_key = extract_private_key(&bundle_content);
 
-    Ok(BundleTokens { app_id, secrets, private_key })
+    Ok(BundleTokens {
+        app_id,
+        secrets,
+        private_key,
+    })
 }
 
 fn extract_bundle_url(html: &str) -> Result<String> {
@@ -186,8 +190,7 @@ fn extract_secrets(bundle: &str) -> Result<Vec<String>> {
 }
 
 fn extract_private_key(bundle: &str) -> Option<String> {
-    let re = Regex::new(r#"privateKey:\s*"(?P<key>[A-Za-z0-9]{6,30})""#)
-        .expect("Invalid regex");
+    let re = Regex::new(r#"privateKey:\s*"(?P<key>[A-Za-z0-9]{6,30})""#).expect("Invalid regex");
     re.captures(bundle)
         .and_then(|caps| caps.name("key"))
         .map(|m| m.as_str().to_string())

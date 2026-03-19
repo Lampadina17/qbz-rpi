@@ -991,15 +991,21 @@ impl LibraryDatabase {
         }
 
         // Detect if this file is a Qobuz purchased download
-        let is_purchase: bool = self.conn
+        let is_purchase: bool = self
+            .conn
             .query_row(
                 "SELECT COUNT(*) FROM downloaded_purchases WHERE file_path = ?1",
                 params![track.file_path],
                 |row| row.get::<_, i64>(0),
             )
-            .unwrap_or(0) > 0;
+            .unwrap_or(0)
+            > 0;
 
-        let source = if is_purchase { "qobuz_purchase" } else { "user" };
+        let source = if is_purchase {
+            "qobuz_purchase"
+        } else {
+            "user"
+        };
 
         self.conn
             .execute(
@@ -1047,7 +1053,10 @@ impl LibraryDatabase {
     pub fn get_track(&self, id: i64) -> Result<Option<LocalTrack>, LibraryError> {
         let mut stmt = self
             .conn
-            .prepare(&format!("SELECT {} FROM local_tracks WHERE id = ?", Self::TRACK_COLUMNS))
+            .prepare(&format!(
+                "SELECT {} FROM local_tracks WHERE id = ?",
+                Self::TRACK_COLUMNS
+            ))
             .map_err(|e| LibraryError::Database(e.to_string()))?;
 
         stmt.query_row(params![id], |row| Self::row_to_track(row))
@@ -1059,7 +1068,10 @@ impl LibraryDatabase {
     pub fn get_track_by_path(&self, path: &str) -> Result<Option<LocalTrack>, LibraryError> {
         let mut stmt = self
             .conn
-            .prepare(&format!("SELECT {} FROM local_tracks WHERE file_path = ? AND cue_file_path IS NULL", Self::TRACK_COLUMNS))
+            .prepare(&format!(
+                "SELECT {} FROM local_tracks WHERE file_path = ? AND cue_file_path IS NULL",
+                Self::TRACK_COLUMNS
+            ))
             .map_err(|e| LibraryError::Database(e.to_string()))?;
 
         stmt.query_row(params![path], |row| Self::row_to_track(row))
@@ -1692,7 +1704,10 @@ impl LibraryDatabase {
             "SELECT {} FROM local_tracks \
              WHERE (title LIKE ?1 OR artist LIKE ?1 OR album LIKE ?1) \
              {} {} {}",
-            Self::TRACK_COLUMNS, source_filter, network_filter, limit_clause
+            Self::TRACK_COLUMNS,
+            source_filter,
+            network_filter,
+            limit_clause
         );
 
         let mut stmt = self
@@ -1754,8 +1769,7 @@ impl LibraryDatabase {
 
     /// Convert a database row to LocalTrack
     /// Column list for SELECT queries (avoids fragile SELECT * with positional indices)
-    const TRACK_COLUMNS: &'static str =
-        "id, file_path, title, artist, album, album_artist, \
+    const TRACK_COLUMNS: &'static str = "id, file_path, title, artist, album, album_artist, \
          track_number, disc_number, year, genre, duration_secs, format, \
          bit_depth, sample_rate, channels, file_size_bytes, \
          cue_file_path, cue_start_secs, cue_end_secs, artwork_path, \
@@ -1764,33 +1778,33 @@ impl LibraryDatabase {
 
     fn row_to_track(row: &rusqlite::Row) -> rusqlite::Result<LocalTrack> {
         Ok(LocalTrack {
-            id: row.get(0)?,                  // id
-            file_path: row.get(1)?,           // file_path
-            title: row.get(2)?,               // title
-            artist: row.get(3)?,              // artist
-            album: row.get(4)?,               // album
-            album_artist: row.get(5)?,        // album_artist
-            track_number: row.get(6)?,        // track_number
-            disc_number: row.get(7)?,         // disc_number
-            year: row.get(8)?,                // year
-            genre: row.get(9)?,               // genre
-            duration_secs: row.get(10)?,      // duration_secs
+            id: row.get(0)?,                                                          // id
+            file_path: row.get(1)?,                                                   // file_path
+            title: row.get(2)?,                                                       // title
+            artist: row.get(3)?,                                                      // artist
+            album: row.get(4)?,                                                       // album
+            album_artist: row.get(5)?,   // album_artist
+            track_number: row.get(6)?,   // track_number
+            disc_number: row.get(7)?,    // disc_number
+            year: row.get(8)?,           // year
+            genre: row.get(9)?,          // genre
+            duration_secs: row.get(10)?, // duration_secs
             format: Self::parse_format(&row.get::<_, String>(11)?), // format
-            bit_depth: row.get(12)?,          // bit_depth
+            bit_depth: row.get(12)?,     // bit_depth
             sample_rate: row.get::<_, f64>(13)?, // sample_rate
-            channels: row.get(14)?,           // channels
-            file_size_bytes: row.get(15)?,    // file_size_bytes
-            cue_file_path: row.get(16)?,      // cue_file_path
-            cue_start_secs: row.get(17)?,     // cue_start_secs
-            cue_end_secs: row.get(18)?,       // cue_end_secs
-            artwork_path: row.get(19)?,       // artwork_path
-            last_modified: row.get(20)?,      // last_modified
-            indexed_at: row.get(21)?,         // indexed_at
+            channels: row.get(14)?,      // channels
+            file_size_bytes: row.get(15)?, // file_size_bytes
+            cue_file_path: row.get(16)?, // cue_file_path
+            cue_start_secs: row.get(17)?, // cue_start_secs
+            cue_end_secs: row.get(18)?,  // cue_end_secs
+            artwork_path: row.get(19)?,  // artwork_path
+            last_modified: row.get(20)?, // last_modified
+            indexed_at: row.get(21)?,    // indexed_at
             album_group_key: row.get::<_, Option<String>>(22)?.unwrap_or_default(), // album_group_key
             album_group_title: row.get::<_, Option<String>>(23)?.unwrap_or_default(), // album_group_title
-            source: row.get(24).ok().flatten(),         // source
+            source: row.get(24).ok().flatten(),                                       // source
             qobuz_track_id: row.get(25).ok().flatten(), // qobuz_track_id
-            catalog_number: row.get(26).ok().flatten(),  // catalog_number
+            catalog_number: row.get(26).ok().flatten(), // catalog_number
         })
     }
 
@@ -3652,15 +3666,10 @@ impl LibraryDatabase {
     }
 
     /// Get custom album cover path for a single album
-    pub fn get_custom_album_cover(
-        &self,
-        album_id: &str,
-    ) -> Result<Option<String>, LibraryError> {
+    pub fn get_custom_album_cover(&self, album_id: &str) -> Result<Option<String>, LibraryError> {
         let mut stmt = self
             .conn
-            .prepare(
-                "SELECT custom_image_path FROM custom_album_covers WHERE album_id = ?1",
-            )
+            .prepare("SELECT custom_image_path FROM custom_album_covers WHERE album_id = ?1")
             .map_err(|e| LibraryError::Database(format!("Failed to prepare query: {}", e)))?;
 
         let result = stmt
@@ -3674,10 +3683,7 @@ impl LibraryDatabase {
     }
 
     /// Remove a custom album cover
-    pub fn remove_custom_album_cover(
-        &self,
-        album_id: &str,
-    ) -> Result<(), LibraryError> {
+    pub fn remove_custom_album_cover(&self, album_id: &str) -> Result<(), LibraryError> {
         self.conn
             .execute(
                 "DELETE FROM custom_album_covers WHERE album_id = ?1",
@@ -3971,14 +3977,10 @@ impl LibraryDatabase {
         let mut stmt = self
             .conn
             .prepare("SELECT track_id, format_id, file_path FROM downloaded_purchases")
-            .map_err(|e| {
-                LibraryError::Database(format!("Failed to prepare statement: {}", e))
-            })?;
+            .map_err(|e| LibraryError::Database(format!("Failed to prepare statement: {}", e)))?;
 
         let rows: Vec<(i64, i64, String)> = stmt
-            .query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .map_err(|e| {
                 LibraryError::Database(format!("Failed to query downloaded purchases: {}", e))
             })?
@@ -3998,7 +4000,10 @@ impl LibraryDatabase {
 
         // Remove stale entries where the file no longer exists
         if !stale.is_empty() {
-            log::info!("Removing {} stale downloaded_purchases entries (files deleted)", stale.len());
+            log::info!(
+                "Removing {} stale downloaded_purchases entries (files deleted)",
+                stale.len()
+            );
             for (track_id, format_id) in &stale {
                 let _ = self.conn.execute(
                     "DELETE FROM downloaded_purchases WHERE track_id = ?1 AND format_id = ?2",
@@ -4017,9 +4022,7 @@ impl LibraryDatabase {
         let mut stmt = self
             .conn
             .prepare("SELECT track_id, format_id FROM downloaded_purchases")
-            .map_err(|e| {
-                LibraryError::Database(format!("Failed to prepare statement: {}", e))
-            })?;
+            .map_err(|e| LibraryError::Database(format!("Failed to prepare statement: {}", e)))?;
 
         let rows = stmt
             .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))

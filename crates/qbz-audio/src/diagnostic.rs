@@ -78,7 +78,11 @@ impl AudioDiagnostic {
         let sample_rate = self.sample_rate.load(Ordering::SeqCst);
         let channels = self.channels.load(Ordering::SeqCst);
 
-        let trailing_zeros = if or_mask == 0 { 32 } else { or_mask.trailing_zeros() };
+        let trailing_zeros = if or_mask == 0 {
+            32
+        } else {
+            or_mask.trailing_zeros()
+        };
         let effective_bits = 32 - trailing_zeros;
 
         let frames = if channels > 0 {

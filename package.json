@@ -1,6 +1,6 @@
 {
   "name": "qbz-nix",
-  "version": "1.1.20",
+  "version": "1.2.0",
   "description": "Native high-fidelity client for Qobuz™ subscribers on Linux with Hi-Fi audio support (uses the Qobuz API; not certified by Qobuz)",
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "dev:ultra-restore": "bash ./scripts/dev-ultra-restore.sh",
     "dev:ultra-reset": "bash ./scripts/dev-ultra-restore.sh --no-start",
     "dev:ultra-full-reset": "bash ./scripts/dev-ultra-restore.sh --full --no-start",
+    "dev:reset-last-view": "bash ./scripts/dev-reset-last-view.sh",
     "dev:tauri": "./scripts/dev-with-env.sh",
     "build": "vite build",
     "preview": "vite preview",

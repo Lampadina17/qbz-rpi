@@ -1,8 +1,8 @@
 //! DLNA/UPnP device discovery via SSDP
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
@@ -62,7 +62,9 @@ impl DlnaDiscovery {
         let handle = tokio::spawn(async move {
             while running.load(Ordering::SeqCst) {
                 let target = SearchTarget::URN(media_renderer_urn());
-                let discover = rupnp::discover(&target, Duration::from_secs(DISCOVERY_WINDOW_SECS), None).await;
+                let discover =
+                    rupnp::discover(&target, Duration::from_secs(DISCOVERY_WINDOW_SECS), None)
+                        .await;
 
                 if let Ok(stream) = discover {
                     let mut stream = std::pin::pin!(stream);
@@ -72,11 +74,7 @@ impl DlnaDiscovery {
                         let manufacturer = device.manufacturer().to_string();
                         let model = device.model_name().to_string();
                         let url = device.url().to_string();
-                        let ip = device
-                            .url()
-                            .host()
-                            .unwrap_or("unknown")
-                            .to_string();
+                        let ip = device.url().host().unwrap_or("unknown").to_string();
 
                         let mut has_av_transport = false;
                         let mut has_rendering_control = false;

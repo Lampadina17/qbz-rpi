@@ -8,7 +8,9 @@
 //! Uses CPAL's ALSA host with specific device selection.
 //! Device enumeration reads directly from /proc/asound (no alsa-utils dependency).
 
-use super::backend::{AlsaPlugin, AudioBackend, AudioBackendType, AudioDevice, BackendConfig, BackendResult};
+use super::backend::{
+    AlsaPlugin, AudioBackend, AudioBackendType, AudioDevice, BackendConfig, BackendResult,
+};
 use rodio::{
     cpal::{
         traits::{DeviceTrait, HostTrait},
@@ -225,7 +227,11 @@ fn read_card_pcm_devices(card_num: &str) -> Vec<ProcPcmInfo> {
                     if !device_num.is_empty() {
                         devices.push(ProcPcmInfo {
                             device_num,
-                            name: if pcm_name.is_empty() { "Unknown".to_string() } else { pcm_name },
+                            name: if pcm_name.is_empty() {
+                                "Unknown".to_string()
+                            } else {
+                                pcm_name
+                            },
                         });
                     }
                 }
@@ -235,7 +241,9 @@ fn read_card_pcm_devices(card_num: &str) -> Vec<ProcPcmInfo> {
 
     // Sort by device number
     devices.sort_by(|a, b| {
-        a.device_num.parse::<u32>().unwrap_or(0)
+        a.device_num
+            .parse::<u32>()
+            .unwrap_or(0)
             .cmp(&b.device_num.parse::<u32>().unwrap_or(0))
     });
 
@@ -257,7 +265,8 @@ fn build_card_info_map() -> HashMap<String, (String, String)> {
 /// Find card number by short name (e.g., "C20" -> "0")
 fn find_card_number_by_name(short_name: &str) -> Option<String> {
     let cards = read_proc_asound_cards();
-    cards.iter()
+    cards
+        .iter()
         .find(|c| c.short_name == short_name)
         .map(|c| c.number.clone())
 }
@@ -271,10 +280,15 @@ fn extract_card_name_from_device(device_id: &str) -> Option<String> {
         Some(after_card.split(',').next()?.to_string())
     } else if device_id.starts_with("hw:") || device_id.starts_with("plughw:") {
         // hw:0,0 -> card number 0 -> look up short name
-        let prefix = if device_id.starts_with("hw:") { "hw:" } else { "plughw:" };
+        let prefix = if device_id.starts_with("hw:") {
+            "hw:"
+        } else {
+            "plughw:"
+        };
         let card_num = device_id.strip_prefix(prefix)?.split(',').next()?;
         let cards = read_proc_asound_cards();
-        cards.iter()
+        cards
+            .iter()
             .find(|c| c.number == card_num)
             .map(|c| c.short_name.clone())
     } else {
@@ -337,7 +351,10 @@ impl AlsaBackend {
 
         // Check if ALSA is available
         // cpal 0.17 changed HostId::name() from "ALSA" to "Alsa" (uses stringify!)
-        if !available_hosts.iter().any(|h| h.name().eq_ignore_ascii_case("alsa")) {
+        if !available_hosts
+            .iter()
+            .any(|h| h.name().eq_ignore_ascii_case("alsa"))
+        {
             return Err("ALSA host not available on this system".to_string());
         }
 
@@ -346,8 +363,9 @@ impl AlsaBackend {
             available_hosts
                 .into_iter()
                 .find(|h| h.name().eq_ignore_ascii_case("alsa"))
-                .ok_or("ALSA host not found".to_string())?
-        ).map_err(|e| format!("Failed to create ALSA host: {}", e))?;
+                .ok_or("ALSA host not found".to_string())?,
+        )
+        .map_err(|e| format!("Failed to create ALSA host: {}", e))?;
 
         log::info!("[ALSA Backend] Initialized successfully");
 
@@ -373,24 +391,32 @@ impl AlsaBackend {
         for card in &cards {
             log::debug!(
                 "[ALSA Backend] Card {}: {} = {} ({} PCM devices)",
-                card.number, card.short_name, card.long_name, card.pcm_playback_devices.len()
+                card.number,
+                card.short_name,
+                card.long_name,
+                card.pcm_playback_devices.len()
             );
         }
 
         // Build CPAL device map for sample rate enrichment (OPTIONAL - may be incomplete)
         let cpal_devices = self.build_cpal_device_map();
-        log::debug!("[ALSA Backend] CPAL found {} devices for enrichment", cpal_devices.len());
+        log::debug!(
+            "[ALSA Backend] CPAL found {} devices for enrichment",
+            cpal_devices.len()
+        );
 
         // Add system default device
-        let default_sample_rates = cpal_devices.get("default")
+        let default_sample_rates = cpal_devices
+            .get("default")
             .and_then(|d| get_supported_sample_rates(d));
-        let default_max_rate = default_sample_rates.as_ref()
+        let default_max_rate = default_sample_rates
+            .as_ref()
             .and_then(|rates| rates.iter().max().copied());
 
         devices.push(AudioDevice {
             id: "default".to_string(),
             name: "default".to_string(),
-            description: None,  // Frontend shows "System Default"
+            description: None, // Frontend shows "System Default"
             is_default: true,
             max_sample_rate: default_max_rate.or(Some(384000)),
             supported_sample_rates: default_sample_rates,
@@ -402,7 +428,8 @@ impl AlsaBackend {
         for card in &cards {
             // Add sysdefault:CARD=name (card default with software mixing)
             let sysdefault_id = format!("sysdefault:CARD={}", card.short_name);
-            let sysdefault_rates = cpal_devices.get(&sysdefault_id)
+            let sysdefault_rates = cpal_devices
+                .get(&sysdefault_id)
                 .and_then(|d| get_supported_sample_rates(d));
 
             devices.push(AudioDevice {
@@ -410,12 +437,13 @@ impl AlsaBackend {
                 name: sysdefault_id.clone(),
                 description: Some(format!("{}, {}", card.long_name, sysdefault_id)),
                 is_default: false,
-                max_sample_rate: sysdefault_rates.as_ref()
+                max_sample_rate: sysdefault_rates
+                    .as_ref()
                     .and_then(|r| r.iter().max().copied())
                     .or(Some(192000)),
                 supported_sample_rates: sysdefault_rates,
                 device_bus: None,
-                is_hardware: false,  // sysdefault uses dmix
+                is_hardware: false, // sysdefault uses dmix
             });
 
             // Add PCM-specific devices (front:, iec958:, hdmi:)
@@ -424,14 +452,18 @@ impl AlsaBackend {
                 let device_prefix = if pcm.name.to_lowercase().contains("hdmi") {
                     "hdmi"
                 } else if pcm.name.to_lowercase().contains("iec958")
-                       || pcm.name.to_lowercase().contains("spdif")
-                       || pcm.name.to_lowercase().contains("s/pdif") {
+                    || pcm.name.to_lowercase().contains("spdif")
+                    || pcm.name.to_lowercase().contains("s/pdif")
+                {
                     "iec958"
                 } else {
-                    "front"  // Default to front: for analog/USB audio
+                    "front" // Default to front: for analog/USB audio
                 };
 
-                let device_id = format!("{}:CARD={},DEV={}", device_prefix, card.short_name, pcm.device_num);
+                let device_id = format!(
+                    "{}:CARD={},DEV={}",
+                    device_prefix, card.short_name, pcm.device_num
+                );
 
                 // Skip if already added (shouldn't happen, but be safe)
                 if devices.iter().any(|d| d.id == device_id) {
@@ -439,11 +471,13 @@ impl AlsaBackend {
                 }
 
                 // Try to get sample rates from CPAL (may fail if device is busy)
-                let sample_rates = cpal_devices.get(&device_id)
+                let sample_rates = cpal_devices
+                    .get(&device_id)
                     .and_then(|d| get_supported_sample_rates(d));
-                let max_rate = sample_rates.as_ref()
+                let max_rate = sample_rates
+                    .as_ref()
                     .and_then(|r| r.iter().max().copied())
-                    .or(Some(384000));  // Assume high capability if CPAL unavailable
+                    .or(Some(384000)); // Assume high capability if CPAL unavailable
 
                 devices.push(AudioDevice {
                     id: device_id.clone(),
@@ -504,7 +538,10 @@ impl AlsaBackend {
 
         // Only use direct ALSA for hw:/plughw:/front: devices
         if !super::AlsaDirectStream::is_hw_device(device_id) {
-            log::info!("[ALSA Backend] Device '{}' is not hw:/plughw:/front:, using CPAL", device_id);
+            log::info!(
+                "[ALSA Backend] Device '{}' is not hw:/plughw:/front:, using CPAL",
+                device_id
+            );
             return None;
         }
 
@@ -538,7 +575,9 @@ impl AlsaBackend {
                 }
                 log::info!(
                     "[ALSA Backend] Hardware confirms support for {}Hz (card '{}', rates: {:?})",
-                    config.sample_rate, card_name, hw_rates
+                    config.sample_rate,
+                    card_name,
+                    hw_rates
                 );
             }
         }
@@ -583,23 +622,38 @@ impl AlsaBackend {
                                 log::info!("[ALSA Backend] PipeWire sink suspended, waiting for device release...");
                                 std::thread::sleep(std::time::Duration::from_millis(200));
 
-                                match super::AlsaDirectStream::new(&hw_device, config.sample_rate, config.channels) {
+                                match super::AlsaDirectStream::new(
+                                    &hw_device,
+                                    config.sample_rate,
+                                    config.channels,
+                                ) {
                                     Ok(stream) => {
                                         log::info!("[ALSA Backend] ✓ Direct hw stream created after PipeWire suspend");
-                                        return Some(Ok((stream, super::backend::BitPerfectMode::DirectHardware)));
+                                        return Some(Ok((
+                                            stream,
+                                            super::backend::BitPerfectMode::DirectHardware,
+                                        )));
                                     }
                                     Err(e2) => {
-                                        log::warn!("[ALSA Backend] Retry after suspend also failed: {}", e2);
+                                        log::warn!(
+                                            "[ALSA Backend] Retry after suspend also failed: {}",
+                                            e2
+                                        );
                                     }
                                 }
                             } else {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
-                                log::warn!("[ALSA Backend] Failed to suspend PipeWire sink: {}", stderr);
+                                log::warn!(
+                                    "[ALSA Backend] Failed to suspend PipeWire sink: {}",
+                                    stderr
+                                );
                             }
                         }
 
                         // If retry failed or suspend failed, fall through to error
-                        log::error!("[ALSA Backend] Cannot acquire device even after PipeWire suspend");
+                        log::error!(
+                            "[ALSA Backend] Cannot acquire device even after PipeWire suspend"
+                        );
                         return Some(Err(format!(
                             "ALSA Direct failed: {}. Device may be in use or inaccessible.",
                             error
@@ -629,7 +683,9 @@ impl AlsaBackend {
                         )));
                     }
 
-                    log::info!("[ALSA Backend] Format unsupported on hw, trying plughw fallback...");
+                    log::info!(
+                        "[ALSA Backend] Format unsupported on hw, trying plughw fallback..."
+                    );
                 }
             }
         }
@@ -644,7 +700,9 @@ impl AlsaBackend {
 
         match super::AlsaDirectStream::new(&plughw_device, config.sample_rate, config.channels) {
             Ok(stream) => {
-                log::info!("[ALSA Backend] ✓ plughw stream created (bit-perfect with format conversion)");
+                log::info!(
+                    "[ALSA Backend] ✓ plughw stream created (bit-perfect with format conversion)"
+                );
                 Some(Ok((stream, super::backend::BitPerfectMode::PluginFallback)))
             }
             Err(e) => {
@@ -657,16 +715,28 @@ impl AlsaBackend {
                         .output()
                     {
                         if output.status.success() {
-                            log::info!("[ALSA Backend] PipeWire sink suspended, retrying plughw...");
+                            log::info!(
+                                "[ALSA Backend] PipeWire sink suspended, retrying plughw..."
+                            );
                             std::thread::sleep(std::time::Duration::from_millis(200));
 
-                            match super::AlsaDirectStream::new(&plughw_device, config.sample_rate, config.channels) {
+                            match super::AlsaDirectStream::new(
+                                &plughw_device,
+                                config.sample_rate,
+                                config.channels,
+                            ) {
                                 Ok(stream) => {
                                     log::info!("[ALSA Backend] ✓ plughw stream created after PipeWire suspend");
-                                    return Some(Ok((stream, super::backend::BitPerfectMode::PluginFallback)));
+                                    return Some(Ok((
+                                        stream,
+                                        super::backend::BitPerfectMode::PluginFallback,
+                                    )));
                                 }
                                 Err(e2) => {
-                                    log::error!("[ALSA Backend] plughw retry after suspend also failed: {}", e2);
+                                    log::error!(
+                                        "[ALSA Backend] plughw retry after suspend also failed: {}",
+                                        e2
+                                    );
                                 }
                             }
                         }
@@ -758,7 +828,10 @@ pub fn resolve_stable_to_current_hw(device_id: &str) -> Option<String> {
     let stripped = device_id.strip_prefix("front:CARD=")?;
     let parts: Vec<&str> = stripped.split(',').collect();
     let card_name = parts.first()?;
-    let dev_part = parts.get(1).and_then(|s| s.strip_prefix("DEV=")).unwrap_or("0");
+    let dev_part = parts
+        .get(1)
+        .and_then(|s| s.strip_prefix("DEV="))
+        .unwrap_or("0");
 
     // Find current card number for this name using /proc/asound
     if let Some(card_num) = find_card_number_by_name(card_name) {
@@ -767,7 +840,10 @@ pub fn resolve_stable_to_current_hw(device_id: &str) -> Option<String> {
         return Some(hw_id);
     }
 
-    log::warn!("[ALSA] Card '{}' not found in current enumeration", card_name);
+    log::warn!(
+        "[ALSA] Card '{}' not found in current enumeration",
+        card_name
+    );
     None
 }
 
@@ -796,10 +872,7 @@ impl AudioBackend for AlsaBackend {
         self.enumerate_with_proc_descriptions()
     }
 
-    fn create_output_stream(
-        &self,
-        config: &BackendConfig,
-    ) -> BackendResult<MixerDeviceSink> {
+    fn create_output_stream(&self, config: &BackendConfig) -> BackendResult<MixerDeviceSink> {
         log::info!(
             "[ALSA Backend] Creating stream: {}Hz, {} channels, exclusive: {}, plugin: {:?}",
             config.sample_rate,
@@ -898,7 +971,9 @@ impl AudioBackend for AlsaBackend {
         // In exclusive mode, PipeWire may have re-acquired the device after the
         // previous ALSA Direct stream released it. Suspend PipeWire before opening.
         if config.exclusive_mode {
-            log::info!("[ALSA Backend] Exclusive mode: suspending PipeWire sinks before CPAL stream");
+            log::info!(
+                "[ALSA Backend] Exclusive mode: suspending PipeWire sinks before CPAL stream"
+            );
             if let Ok(output) = std::process::Command::new("pactl")
                 .args(["suspend-sink", "@DEFAULT_SINK@", "1"])
                 .output()
@@ -941,12 +1016,15 @@ impl AudioBackend for AlsaBackend {
         if effective_rate != config.sample_rate {
             log::info!(
                 "[ALSA Backend] Output stream created at {}Hz (resampled from {}Hz, exclusive: {})",
-                effective_rate, config.sample_rate, config.exclusive_mode
+                effective_rate,
+                config.sample_rate,
+                config.exclusive_mode
             );
         } else {
             log::info!(
                 "[ALSA Backend] Output stream created successfully at {}Hz (exclusive: {})",
-                config.sample_rate, config.exclusive_mode
+                config.sample_rate,
+                config.exclusive_mode
             );
         }
 

@@ -67,7 +67,7 @@ impl MediaControlsManager {
 
                         let _ = app_handle.emit("media:control", &payload);
                     }) {
-                        log::error!("Failed to attach media controls handler: {}", e);
+                        log::error!("Failed to attach media controls handler: {:?}", e);
                         return;
                     }
 
@@ -79,7 +79,7 @@ impl MediaControlsManager {
                 }
                 Err(e) => {
                     log::warn!(
-                        "Failed to initialize media controls: {}. Media keys won't work.",
+                        "Failed to initialize media controls: {:?}. Media keys won't work.",
                         e
                     );
                 }
@@ -102,7 +102,7 @@ impl MediaControlsManager {
                 };
 
                 if let Err(e) = controls.set_metadata(metadata) {
-                    log::debug!("Failed to set media metadata: {}", e);
+                    log::debug!("Failed to set media metadata: {:?}", e);
                 }
             }
         }

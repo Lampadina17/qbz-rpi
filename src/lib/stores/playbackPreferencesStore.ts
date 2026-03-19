@@ -51,6 +51,15 @@ export async function setAutoplayMode(mode: AutoplayMode): Promise<void> {
   await invoke('v2_set_autoplay_mode', { mode });
   preferences.autoplay_mode = mode;
   notifyListeners();
+
+  // Sync autoplay mode to QConnect server if controlling a remote renderer
+  try {
+    await invoke('v2_qconnect_set_autoplay_mode_if_remote', {
+      enabled: mode === 'continue'
+    });
+  } catch {
+    // QConnect sync is best-effort — don't fail the preference save
+  }
 }
 
 /**

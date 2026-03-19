@@ -11,6 +11,10 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getUserItem, setUserItem } from '$lib/utils/userStorage';
+import {
+  isPlaybackSourceLocal,
+  resolvePlaybackSource
+} from '$lib/services/playbackSource';
 
 /**
  * Get the preferred streaming quality from localStorage
@@ -106,6 +110,10 @@ function showToast(message: string, type: ToastType): void {
   storeShowToast(message, type);
 }
 
+async function handoffPlayTrackToRemoteRenderer(trackId: number): Promise<boolean> {
+  return invoke<boolean>('v2_qconnect_play_track_if_remote', { trackId });
+}
+
 // ============ Core Playback ============
 
 /**
@@ -127,9 +135,25 @@ export async function playTrack(
   setCurrentTrack(track);
 
   try {
+    let handledRemotely = false;
+
+    if (!gaplessTransition && !isLocal && source !== 'plex') {
+      handledRemotely = await handoffPlayTrackToRemoteRenderer(track.id);
+    }
+
     // Gapless transition: backend already has audio playing, just update metadata
     if (gaplessTransition) {
       console.log('[Gapless] Transition mode — skipping stop/play, updating metadata only');
+      setIsPlaying(true);
+    } else if (handledRemotely) {
+      // Stop any leftover local playback so the active remote renderer owns the session.
+      if (!isCasting()) {
+        try {
+          await invoke('v2_stop_playback');
+        } catch {
+          // Ignore errors - player might not be playing locally
+        }
+      }
       setIsPlaying(true);
     } else {
       // Always stop local playback engine before starting a new local track.
@@ -185,7 +209,8 @@ export async function playTrack(
         } else {
           const result = await invoke<PlayTrackResult>('v2_play_track', {
             trackId: track.id,
-            quality: getStreamingQuality()
+            quality: getStreamingQuality(),
+            durationSecs: track.duration ? Math.round(track.duration) : null
           });
 
           // Update track format based on actual stream format_id from Qobuz
@@ -277,12 +302,11 @@ export async function playTrack(
         console.log('Auto-skipping to next track:', next.title);
         // Small delay to let the toast be visible
         setTimeout(() => {
-          const nextSource = (next.source === 'plex' || next.source === 'local' || next.source === 'qobuz')
-            ? next.source
-            : (next.is_local ? 'local' : 'qobuz');
+          const nextSource = resolvePlaybackSource(next);
+          const nextIsLocal = isPlaybackSourceLocal(nextSource, next.is_local ?? false);
           const nextSamplingRate = next.sample_rate == null
             ? undefined
-            : (next.is_local || nextSource === 'plex')
+            : nextIsLocal
               ? next.sample_rate / 1000
               : next.sample_rate;
           playTrack({
@@ -298,9 +322,9 @@ export async function playTrack(
             bitDepth: next.bit_depth || undefined,
             samplingRate: nextSamplingRate,
             source: nextSource,
-            isLocal: next.is_local
+            isLocal: nextIsLocal
           }, {
-            isLocal: next.is_local ?? false,
+            isLocal: nextIsLocal,
             source: nextSource,
             showLoadingToast: true,
             showSuccessToast: true
@@ -312,7 +336,10 @@ export async function playTrack(
       return false;
     }
 
-    showToast(`Playback error: ${err}`, 'error');
+    const errorMsg = typeof err === 'object' && err !== null
+      ? (err as Record<string, unknown>).message ?? (err as Record<string, unknown>).details ?? JSON.stringify(err)
+      : String(err);
+    showToast(`Playback error: ${errorMsg}`, 'error');
     setIsPlaying(false);
     return false;
   }

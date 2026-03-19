@@ -2,9 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use rust_cast::CastDevice;
-use rust_cast::channels::media::{Image, Media, Metadata, MusicTrackMediaMetadata, StreamType, PlayerState, IdleReason};
+use rust_cast::channels::media::{
+    IdleReason, Image, Media, Metadata, MusicTrackMediaMetadata, PlayerState, StreamType,
+};
 use rust_cast::channels::receiver::{CastDeviceApp, Status as ReceiverStatus};
+use rust_cast::CastDevice;
 
 use crate::CastError;
 
@@ -90,7 +92,10 @@ impl CastDeviceConnection {
     /// Disconnect from device
     pub fn disconnect(&mut self) -> Result<(), CastError> {
         if let Some(session) = &self.session {
-            let _ = self.device.connection.disconnect(session.transport_id.as_str());
+            let _ = self
+                .device
+                .connection
+                .disconnect(session.transport_id.as_str());
         }
         let _ = self.device.connection.disconnect(DEFAULT_RECEIVER_ID);
         self.session = None;
@@ -151,7 +156,11 @@ impl CastDeviceConnection {
         let status = self
             .device
             .media
-            .load(session.transport_id.as_str(), session.session_id.as_str(), &media)
+            .load(
+                session.transport_id.as_str(),
+                session.session_id.as_str(),
+                &media,
+            )
             .map_err(|e| CastError::Media(e.to_string()))?;
 
         if let Some(entry) = status.entries.first() {
@@ -245,9 +254,7 @@ impl CastDeviceConnection {
                 IdleReason::Error => "ERROR".to_string(),
             });
 
-            let duration = entry.media.as_ref()
-                .and_then(|m| m.duration)
-                .unwrap_or(0.0) as f64;
+            let duration = entry.media.as_ref().and_then(|m| m.duration).unwrap_or(0.0) as f64;
 
             let position = entry.current_time.unwrap_or(0.0) as f64;
 

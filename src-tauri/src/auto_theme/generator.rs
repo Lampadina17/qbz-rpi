@@ -151,9 +151,7 @@ pub fn generate_theme_from_scheme(scheme: &SystemColorScheme) -> GeneratedTheme 
     let mut vars = HashMap::new();
 
     // Determine dark/light from the window background
-    let window_bg = scheme
-        .window_bg
-        .unwrap_or(PaletteColor::new(40, 40, 40));
+    let window_bg = scheme.window_bg.unwrap_or(PaletteColor::new(40, 40, 40));
     let is_dark = window_bg.luminance() < 0.5;
 
     // ── Backgrounds ──────────────────────────────────────────────────────
@@ -188,25 +186,23 @@ pub fn generate_theme_from_scheme(scheme: &SystemColorScheme) -> GeneratedTheme 
     vars.insert("--bg-hover".into(), bg_hover.to_hex());
 
     // ── Text ─────────────────────────────────────────────────────────────
-    let text_primary = scheme
-        .window_fg
-        .unwrap_or(if is_dark {
-            PaletteColor::new(223, 223, 223)
-        } else {
-            PaletteColor::new(36, 36, 36)
-        });
+    let text_primary = scheme.window_fg.unwrap_or(if is_dark {
+        PaletteColor::new(223, 223, 223)
+    } else {
+        PaletteColor::new(36, 36, 36)
+    });
     let text_primary = ensure_text_contrast(text_primary, &window_bg, is_dark);
     vars.insert("--text-primary".into(), text_primary.to_hex());
 
     // Secondary: slightly dimmed from primary
-    let text_secondary = scheme.view_fg.unwrap_or_else(|| {
-        text_primary.shift_lightness(if is_dark { -0.10 } else { 0.10 })
-    });
+    let text_secondary = scheme
+        .view_fg
+        .unwrap_or_else(|| text_primary.shift_lightness(if is_dark { -0.10 } else { 0.10 }));
     vars.insert("--text-secondary".into(), text_secondary.to_hex());
 
-    let text_muted = scheme.window_fg_inactive.unwrap_or_else(|| {
-        text_primary.shift_lightness(if is_dark { -0.25 } else { 0.25 })
-    });
+    let text_muted = scheme
+        .window_fg_inactive
+        .unwrap_or_else(|| text_primary.shift_lightness(if is_dark { -0.25 } else { 0.25 }));
     vars.insert("--text-muted".into(), text_muted.to_hex());
 
     let text_disabled = text_muted.shift_lightness(if is_dark { -0.10 } else { 0.10 });
@@ -229,24 +225,20 @@ pub fn generate_theme_from_scheme(scheme: &SystemColorScheme) -> GeneratedTheme 
     );
 
     // Button text on accent
-    let btn_text = scheme.selection_fg.unwrap_or(
-        if accent.luminance() < 0.5 {
-            PaletteColor::new(255, 255, 255)
-        } else {
-            PaletteColor::new(0, 0, 0)
-        },
-    );
+    let btn_text = scheme.selection_fg.unwrap_or(if accent.luminance() < 0.5 {
+        PaletteColor::new(255, 255, 255)
+    } else {
+        PaletteColor::new(0, 0, 0)
+    });
     vars.insert("--btn-primary-text".into(), btn_text.to_hex());
 
     // ── Status colors ────────────────────────────────────────────────────
     // Use system negative/neutral if available, else fallback to safe defaults
-    let danger = scheme
-        .fg_negative
-        .unwrap_or(if is_dark {
-            PaletteColor::new(239, 68, 68)
-        } else {
-            PaletteColor::new(220, 38, 38)
-        });
+    let danger = scheme.fg_negative.unwrap_or(if is_dark {
+        PaletteColor::new(239, 68, 68)
+    } else {
+        PaletteColor::new(220, 38, 38)
+    });
     vars.insert("--danger".into(), danger.to_hex());
     vars.insert("--danger-bg".into(), danger.to_rgba(0.1));
     vars.insert("--danger-border".into(), danger.to_rgba(0.3));
@@ -255,13 +247,11 @@ pub fn generate_theme_from_scheme(scheme: &SystemColorScheme) -> GeneratedTheme 
         danger.to_rgba(if is_dark { 0.2 } else { 0.15 }),
     );
 
-    let warning = scheme
-        .fg_neutral
-        .unwrap_or(if is_dark {
-            PaletteColor::new(251, 191, 36)
-        } else {
-            PaletteColor::new(217, 119, 6)
-        });
+    let warning = scheme.fg_neutral.unwrap_or(if is_dark {
+        PaletteColor::new(251, 191, 36)
+    } else {
+        PaletteColor::new(217, 119, 6)
+    });
     vars.insert("--warning".into(), warning.to_hex());
     vars.insert("--warning-bg".into(), warning.to_rgba(0.1));
     vars.insert("--warning-border".into(), warning.to_rgba(0.3));
@@ -285,11 +275,7 @@ pub fn generate_theme_from_scheme(scheme: &SystemColorScheme) -> GeneratedTheme 
     vars.insert("--border-strong".into(), border_strong.to_hex());
 
     // ── Alpha tokens ─────────────────────────────────────────────────────
-    let alpha_base = if is_dark {
-        (255, 255, 255)
-    } else {
-        (0, 0, 0)
-    };
+    let alpha_base = if is_dark { (255, 255, 255) } else { (0, 0, 0) };
     let alpha_levels: &[(f64, &str)] = &[
         (0.04, "--alpha-4"),
         (0.05, "--alpha-5"),
@@ -330,11 +316,7 @@ pub fn generate_theme_from_scheme(scheme: &SystemColorScheme) -> GeneratedTheme 
 }
 
 /// Ensure text has at least WCAG AA contrast (4.5:1) against the background.
-fn ensure_text_contrast(
-    text: PaletteColor,
-    bg: &PaletteColor,
-    is_dark: bool,
-) -> PaletteColor {
+fn ensure_text_contrast(text: PaletteColor, bg: &PaletteColor, is_dark: bool) -> PaletteColor {
     if text.contrast_ratio(bg) >= 4.5 {
         return text;
     }

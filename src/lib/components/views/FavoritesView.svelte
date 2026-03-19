@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { getUserInfo } from '$lib/stores/authStore';
   import { resolveArtistImage } from '$lib/stores/customArtistImageStore';
   import { onMount, tick } from 'svelte';
   import { t } from '$lib/i18n';
@@ -22,6 +23,7 @@
   import { syncCache as syncAlbumCache } from '$lib/stores/albumFavoritesStore';
   import { syncCache as syncArtistCache } from '$lib/stores/artistFavoritesStore';
   import { categorizeAlbum, getQobuzImage, formatQuality } from '$lib/adapters/qobuzAdapters';
+  import { replacePlaybackQueue } from '$lib/services/queuePlaybackService';
   import { getUserItem, setUserItem } from '$lib/utils/userStorage';
   import GenreFilterButton from '../GenreFilterButton.svelte';
   import {
@@ -193,6 +195,10 @@
   let favoriteTracks = $state<FavoriteTrack[]>([]);
   let favoriteArtists = $state<FavoriteArtist[]>([]);
   let favoritePlaylists = $state<FavoritePlaylist[]>([]);
+  let followingPlaylists = $state<FavoritePlaylist[]>([]);
+  type PlaylistSubTab = 'favorites' | 'following';
+  let playlistSubTab = $state<PlaylistSubTab>('favorites');
+  let loadingFollowing = $state(false);
 
   let loading = $state(false);
   let loadingPlaylists = $state(false);
@@ -528,9 +534,10 @@
   });
 
   let filteredPlaylists = $derived.by(() => {
-    if (!playlistSearch.trim()) return favoritePlaylists;
+    const source = playlistSubTab === 'following' ? followingPlaylists : favoritePlaylists;
+    if (!playlistSearch.trim()) return source;
     const query = playlistSearch.toLowerCase();
-    return favoritePlaylists.filter(p =>
+    return source.filter(p =>
       p.name.toLowerCase().includes(query) ||
       p.owner.name.toLowerCase().includes(query)
     );
@@ -799,7 +806,6 @@
       const favoriteIds = await invoke<number[]>('v2_playlist_get_favorites');
       if (favoriteIds.length === 0) {
         favoritePlaylists = [];
-        return;
       }
       // Fetch full playlist data for each favorited playlist
       const playlists: FavoritePlaylist[] = [];
@@ -812,6 +818,9 @@
         }
       }
       favoritePlaylists = playlists;
+
+      // Also load followed playlists (subscribed on Qobuz, not owned by user)
+      loadFollowingPlaylists();
     } catch (err) {
       console.error('Failed to load favorite playlists:', err);
       error = String(err);
@@ -823,6 +832,25 @@
         spinnerFading = false;
         contentVisible = true;
       }, 200); // Match fadeout duration
+    }
+  }
+
+  async function loadFollowingPlaylists() {
+    loadingFollowing = true;
+    try {
+      const allPlaylists = await invoke<FavoritePlaylist[]>('v2_get_user_playlists');
+      const userId = getUserInfo()?.userId;
+      if (userId) {
+        followingPlaylists = allPlaylists.filter(p => p.owner.id !== userId);
+      } else {
+        // No user ID available — show all non-owned as best effort
+        followingPlaylists = [];
+      }
+    } catch (err) {
+      console.warn('Failed to load following playlists:', err);
+      followingPlaylists = [];
+    } finally {
+      loadingFollowing = false;
     }
   }
 
@@ -855,8 +883,10 @@
       loadFavorites(tab);
     } else if (tab === 'artists' && favoriteArtists.length === 0) {
       loadFavorites(tab);
-    } else if (tab === 'playlists' && favoritePlaylists.length === 0) {
-      loadFavoritePlaylists();
+    } else if (tab === 'playlists') {
+      if (favoritePlaylists.length === 0 && followingPlaylists.length === 0) {
+        loadFavoritePlaylists();
+      }
     }
   }
 
@@ -1179,7 +1209,9 @@
   async function setFavoritesQueue(startIndex: number) {
     if (filteredTracks.length === 0) return;
     const queueTracks = buildFavoritesQueueTracks(filteredTracks);
-    await invoke('v2_set_queue', { tracks: queueTracks, startIndex });
+    await replacePlaybackQueue(queueTracks, startIndex, {
+      debugLabel: 'favorites:tracks'
+    });
   }
 
   async function handleTrackClick(track: FavoriteTrack, index: number) {
@@ -1216,7 +1248,9 @@
       // Shuffle the tracks
       const shuffled = [...filteredTracks].sort(() => Math.random() - 0.5);
       const queueTracks = buildFavoritesQueueTracks(shuffled);
-      await invoke('v2_set_queue', { tracks: queueTracks, startIndex: 0 });
+      await replacePlaybackQueue(queueTracks, 0, {
+        debugLabel: 'favorites:shuffle'
+      });
       await setFavoritesContext(shuffled.map(trk => trk.id), 0);
       onTrackPlay(buildDisplayTrack(shuffled[0], 0));
     } catch (err) {
@@ -2024,7 +2058,28 @@
       {/if}
       </ViewTransition>
     {:else if activeTab === 'playlists'}
-      {#if loadingPlaylists}
+      <!-- Sub-tab selector: Favorites vs Following -->
+      <div class="playlist-sub-tabs">
+        <button
+          class="playlist-sub-tab"
+          class:active={playlistSubTab === 'favorites'}
+          onclick={() => playlistSubTab = 'favorites'}
+        >
+          {$t('favorites.playlistSubTabs.favorites')}
+        </button>
+        <button
+          class="playlist-sub-tab"
+          class:active={playlistSubTab === 'following'}
+          onclick={() => playlistSubTab = 'following'}
+        >
+          {$t('favorites.playlistSubTabs.following')}
+          {#if followingPlaylists.length > 0}
+            <span class="sub-tab-count">{followingPlaylists.length}</span>
+          {/if}
+        </button>
+      </div>
+
+      {#if loadingPlaylists || (playlistSubTab === 'following' && loadingFollowing)}
         {#key activeTab}
         <ViewTransition duration={200} distance={12} direction="down">
         <div class="loading" class:fading={spinnerFading}>
@@ -2035,11 +2090,16 @@
         {/key}
       {:else}
         <ViewTransition duration={200} distance={12} direction="up">
-        {#if favoritePlaylists.length === 0}
+        {#if filteredPlaylists.length === 0 && !playlistSearch.trim()}
           <div class="empty">
             <ListMusic size={48} />
-            <p>{$t('favorites.noFavoritePlaylists')}</p>
-            <p class="empty-hint">{$t('favorites.likePlaylistsHint')}</p>
+            {#if playlistSubTab === 'following'}
+              <p>{$t('favorites.noFollowingPlaylists')}</p>
+              <p class="empty-hint">{$t('favorites.followPlaylistsHint')}</p>
+            {:else}
+              <p>{$t('favorites.noFavoritePlaylists')}</p>
+              <p class="empty-hint">{$t('favorites.likePlaylistsHint')}</p>
+            {/if}
           </div>
         {:else if filteredPlaylists.length === 0}
           <div class="empty">
@@ -2656,6 +2716,46 @@
   }
 
   /* Playlist grid styles */
+  .playlist-sub-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+    padding-bottom: 0;
+  }
+
+  .playlist-sub-tab {
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 150ms ease, border-color 150ms ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .playlist-sub-tab:hover {
+    color: var(--text-primary);
+  }
+
+  .playlist-sub-tab.active {
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+  }
+
+  .sub-tab-count {
+    font-size: 11px;
+    background: var(--bg-tertiary);
+    padding: 1px 6px;
+    border-radius: 10px;
+    color: var(--text-secondary);
+  }
+
   .playlist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, 140px);

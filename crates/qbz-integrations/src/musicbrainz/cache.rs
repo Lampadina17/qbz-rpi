@@ -8,8 +8,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::models::{
-    ArtistMetadata, ArtistRelationships, LocationDiscoveryResponse,
-    MatchConfidence, ResolvedArtist, ResolvedTrack, ArtistType,
+    ArtistMetadata, ArtistRelationships, ArtistType, LocationDiscoveryResponse, MatchConfidence,
+    ResolvedArtist, ResolvedTrack,
 };
 
 /// TTL for recording cache (30 days)
@@ -245,7 +245,10 @@ impl MusicBrainzCache {
     // ============ Artist Cache (JSON-serialized) ============
 
     /// Get cached artist by name (JSON-serialized)
-    pub fn get_artist_by_name<T: serde::de::DeserializeOwned>(&self, name: &str) -> Result<Option<T>, String> {
+    pub fn get_artist_by_name<T: serde::de::DeserializeOwned>(
+        &self,
+        name: &str,
+    ) -> Result<Option<T>, String> {
         let normalized = Self::normalize_name(name);
         let min_fetched_at = Self::current_timestamp() - ARTIST_TTL_SECS;
         let result: Option<String> = self
@@ -268,7 +271,11 @@ impl MusicBrainzCache {
     }
 
     /// Cache an artist (JSON-serialized)
-    pub fn set_artist_by_name<T: serde::Serialize>(&self, name: &str, data: &T) -> Result<(), String> {
+    pub fn set_artist_by_name<T: serde::Serialize>(
+        &self,
+        name: &str,
+        data: &T,
+    ) -> Result<(), String> {
         let normalized = Self::normalize_name(name);
         let fetched_at = Self::current_timestamp();
         let json = serde_json::to_string(data)
@@ -285,7 +292,10 @@ impl MusicBrainzCache {
     // ============ Release Cache ============
 
     /// Get cached release by barcode
-    pub fn get_release<T: serde::de::DeserializeOwned>(&self, barcode: &str) -> Result<Option<T>, String> {
+    pub fn get_release<T: serde::de::DeserializeOwned>(
+        &self,
+        barcode: &str,
+    ) -> Result<Option<T>, String> {
         let min_fetched_at = Self::current_timestamp() - RELEASE_TTL_SECS;
         let result: Option<String> = self
             .conn
@@ -345,7 +355,11 @@ impl MusicBrainzCache {
     }
 
     /// Cache artist relationships
-    pub fn set_artist_relations(&self, mbid: &str, data: &ArtistRelationships) -> Result<(), String> {
+    pub fn set_artist_relations(
+        &self,
+        mbid: &str,
+        data: &ArtistRelationships,
+    ) -> Result<(), String> {
         let fetched_at = Self::current_timestamp();
         let json = serde_json::to_string(data)
             .map_err(|e| format!("Failed to serialize relations: {}", e))?;
@@ -399,7 +413,10 @@ impl MusicBrainzCache {
     // ============ Scene Discovery Cache ============
 
     /// Get cached scene discovery results
-    pub fn get_scene_cache(&self, cache_key: &str) -> Result<Option<LocationDiscoveryResponse>, String> {
+    pub fn get_scene_cache(
+        &self,
+        cache_key: &str,
+    ) -> Result<Option<LocationDiscoveryResponse>, String> {
         let min_fetched_at = Self::current_timestamp() - SCENE_TTL_SECS;
         let result: Option<String> = self
             .conn
@@ -421,10 +438,14 @@ impl MusicBrainzCache {
     }
 
     /// Cache scene discovery results
-    pub fn set_scene_cache(&self, cache_key: &str, data: &LocationDiscoveryResponse) -> Result<(), String> {
+    pub fn set_scene_cache(
+        &self,
+        cache_key: &str,
+        data: &LocationDiscoveryResponse,
+    ) -> Result<(), String> {
         let fetched_at = Self::current_timestamp();
-        let json = serde_json::to_string(data)
-            .map_err(|e| format!("Failed to serialize scene: {}", e))?;
+        let json =
+            serde_json::to_string(data).map_err(|e| format!("Failed to serialize scene: {}", e))?;
         self.conn
             .execute(
                 "INSERT OR REPLACE INTO mb_scene_cache (cache_key, data, fetched_at) VALUES (?, ?, ?)",
@@ -621,7 +642,10 @@ impl MusicBrainzCache {
         }
 
         if total_deleted > 0 {
-            log::info!("MusicBrainz cache cleanup: removed {} expired entries", total_deleted);
+            log::info!(
+                "MusicBrainz cache cleanup: removed {} expired entries",
+                total_deleted
+            );
         }
         Ok(total_deleted)
     }
@@ -650,17 +674,23 @@ impl MusicBrainzCache {
 
     /// Get cache statistics
     pub fn get_stats(&self) -> Result<CacheStats, String> {
-        let recordings: i64 = self.conn
+        let recordings: i64 = self
+            .conn
             .query_row("SELECT COUNT(*) FROM mb_recordings", [], |row| row.get(0))
             .unwrap_or(0);
-        let artists: i64 = self.conn
+        let artists: i64 = self
+            .conn
             .query_row("SELECT COUNT(*) FROM mb_artists", [], |row| row.get(0))
             .unwrap_or(0);
-        let releases: i64 = self.conn
+        let releases: i64 = self
+            .conn
             .query_row("SELECT COUNT(*) FROM mb_releases", [], |row| row.get(0))
             .unwrap_or(0);
-        let relations: i64 = self.conn
-            .query_row("SELECT COUNT(*) FROM mb_artist_relations", [], |row| row.get(0))
+        let relations: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM mb_artist_relations", [], |row| {
+                row.get(0)
+            })
             .unwrap_or(0);
 
         Ok(CacheStats {
@@ -674,12 +704,14 @@ impl MusicBrainzCache {
     /// TTL-based cleanup (V2 style)
     pub fn cleanup(&self, ttl_days: u32) -> Result<(u64, u64), String> {
         let cutoff = chrono::Utc::now().timestamp() - (ttl_days as i64 * 86400);
-        let tracks_deleted = self.conn
-            .execute("DELETE FROM resolved_tracks WHERE cached_at < ?", [cutoff])
-            .map_err(|e| format!("Failed to cleanup tracks: {}", e))? as u64;
-        let artists_deleted = self.conn
-            .execute("DELETE FROM resolved_artists WHERE cached_at < ?", [cutoff])
-            .map_err(|e| format!("Failed to cleanup artists: {}", e))? as u64;
+        let tracks_deleted =
+            self.conn
+                .execute("DELETE FROM resolved_tracks WHERE cached_at < ?", [cutoff])
+                .map_err(|e| format!("Failed to cleanup tracks: {}", e))? as u64;
+        let artists_deleted =
+            self.conn
+                .execute("DELETE FROM resolved_artists WHERE cached_at < ?", [cutoff])
+                .map_err(|e| format!("Failed to cleanup artists: {}", e))? as u64;
         Ok((tracks_deleted, artists_deleted))
     }
 

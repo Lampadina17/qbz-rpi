@@ -4,13 +4,13 @@
 //! for volume normalization. When normalization is disabled, this module is
 //! not invoked and the audio pipeline remains bit-perfect.
 
-use symphonia::core::formats::FormatReader;
-use symphonia::core::meta::{MetadataOptions, StandardTagKey, Tag, Value};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::FormatReader;
 use symphonia::core::io::{MediaSource, MediaSourceStream};
+use symphonia::core::meta::{MetadataOptions, StandardTagKey, Tag, Value};
 use symphonia::core::probe::Hint;
 use symphonia::default::get_probe;
-use std::io::{Cursor, Read, Seek, SeekFrom};
 
 /// Extracted loudness data for a track
 #[derive(Debug, Clone)]
@@ -28,7 +28,9 @@ struct CursorMediaSource {
 
 impl CursorMediaSource {
     fn new(data: Vec<u8>) -> Self {
-        Self { inner: Cursor::new(data) }
+        Self {
+            inner: Cursor::new(data),
+        }
     }
 }
 
@@ -45,7 +47,9 @@ impl Seek for CursorMediaSource {
 }
 
 impl MediaSource for CursorMediaSource {
-    fn is_seekable(&self) -> bool { true }
+    fn is_seekable(&self) -> bool {
+        true
+    }
     fn byte_len(&self) -> Option<u64> {
         Some(self.inner.get_ref().len() as u64)
     }
@@ -122,7 +126,11 @@ pub fn extract_replaygain_from_reader(format: &mut dyn FormatReader) -> Option<R
     }
 
     gain_db.map(|db| {
-        log::info!("Loudness: found ReplayGain (streaming): {:.2} dB, peak: {:?}", db, peak);
+        log::info!(
+            "Loudness: found ReplayGain (streaming): {:.2} dB, peak: {:?}",
+            db,
+            peak
+        );
         ReplayGainData { gain_db: db, peak }
     })
 }
@@ -174,7 +182,11 @@ fn extract_from_tags(tags: &[Tag], gain_db: &mut Option<f32>, peak: &mut Option<
 fn parse_gain_value(value: &Value) -> Option<f32> {
     let s = value_to_string(value)?;
     // Strip " dB" suffix if present, then parse
-    let trimmed = s.trim().trim_end_matches(" dB").trim_end_matches(" db").trim_end_matches("dB");
+    let trimmed = s
+        .trim()
+        .trim_end_matches(" dB")
+        .trim_end_matches(" db")
+        .trim_end_matches("dB");
     trimmed.parse::<f32>().ok()
 }
 
@@ -240,7 +252,9 @@ pub fn calculate_gain_factor(rg: &ReplayGainData, target_lufs: f32) -> f32 {
             if gain > max_safe_gain {
                 log::debug!(
                     "Loudness: capping gain from {:.3} to {:.3} (peak: {:.4})",
-                    gain, max_safe_gain, peak
+                    gain,
+                    max_safe_gain,
+                    peak
                 );
                 gain = max_safe_gain;
             }
@@ -258,7 +272,10 @@ pub fn calculate_gain_factor(rg: &ReplayGainData, target_lufs: f32) -> f32 {
 
     log::debug!(
         "Loudness: gain_db={:.2}, target={:.1} LUFS, adjusted={:.2} dB, factor={:.4}",
-        rg.gain_db, target_lufs, adjusted_gain_db, gain
+        rg.gain_db,
+        target_lufs,
+        adjusted_gain_db,
+        gain
     );
 
     gain
@@ -283,7 +300,10 @@ mod tests {
     #[test]
     fn test_calculate_gain_factor_at_reference() {
         // At -18 LUFS target (ReplayGain reference), gain_db should pass through directly
-        let rg = ReplayGainData { gain_db: -3.0, peak: Some(0.9) };
+        let rg = ReplayGainData {
+            gain_db: -3.0,
+            peak: Some(0.9),
+        };
         let factor = calculate_gain_factor(&rg, -18.0);
         // -3 dB → ~0.708
         assert!((factor - 0.708).abs() < 0.01);
@@ -292,7 +312,10 @@ mod tests {
     #[test]
     fn test_calculate_gain_factor_with_target_adjustment() {
         // At -14 LUFS target, we add +4 dB to the RG gain
-        let rg = ReplayGainData { gain_db: -3.0, peak: Some(0.5) };
+        let rg = ReplayGainData {
+            gain_db: -3.0,
+            peak: Some(0.5),
+        };
         let factor = calculate_gain_factor(&rg, -14.0);
         // -3 + 4 = +1 dB → ~1.122
         assert!((factor - 1.122).abs() < 0.01);
@@ -301,7 +324,10 @@ mod tests {
     #[test]
     fn test_clipping_prevention_with_peak() {
         // High positive gain but peak close to 1.0 — should be capped
-        let rg = ReplayGainData { gain_db: 10.0, peak: Some(0.95) };
+        let rg = ReplayGainData {
+            gain_db: 10.0,
+            peak: Some(0.95),
+        };
         let factor = calculate_gain_factor(&rg, -18.0);
         // max_safe_gain = 1/0.95 ≈ 1.053, which is less than db_to_linear(10) ≈ 3.162
         assert!((factor - (1.0 / 0.95)).abs() < 0.01);
@@ -310,7 +336,10 @@ mod tests {
     #[test]
     fn test_clipping_prevention_without_peak() {
         // High gain without peak data — capped at +6 dB
-        let rg = ReplayGainData { gain_db: 12.0, peak: None };
+        let rg = ReplayGainData {
+            gain_db: 12.0,
+            peak: None,
+        };
         let factor = calculate_gain_factor(&rg, -18.0);
         assert!((factor - db_to_linear(6.0)).abs() < 0.01);
     }
@@ -318,18 +347,30 @@ mod tests {
     #[test]
     fn test_parse_gain_value_formats() {
         // Standard format: "-6.54 dB"
-        assert!((parse_gain_value(&Value::String("-6.54 dB".to_string())).unwrap() - (-6.54)).abs() < 0.001);
+        assert!(
+            (parse_gain_value(&Value::String("-6.54 dB".to_string())).unwrap() - (-6.54)).abs()
+                < 0.001
+        );
         // Without dB suffix
-        assert!((parse_gain_value(&Value::String("-6.54".to_string())).unwrap() - (-6.54)).abs() < 0.001);
+        assert!(
+            (parse_gain_value(&Value::String("-6.54".to_string())).unwrap() - (-6.54)).abs()
+                < 0.001
+        );
         // Positive
-        assert!((parse_gain_value(&Value::String("+3.21 dB".to_string())).unwrap() - 3.21).abs() < 0.001);
+        assert!(
+            (parse_gain_value(&Value::String("+3.21 dB".to_string())).unwrap() - 3.21).abs()
+                < 0.001
+        );
         // Float value
         assert!((parse_gain_value(&Value::Float(-6.54)).unwrap() - (-6.54)).abs() < 0.001);
     }
 
     #[test]
     fn test_parse_peak_value() {
-        assert!((parse_peak_value(&Value::String("0.988553".to_string())).unwrap() - 0.988553).abs() < 0.0001);
+        assert!(
+            (parse_peak_value(&Value::String("0.988553".to_string())).unwrap() - 0.988553).abs()
+                < 0.0001
+        );
         assert!((parse_peak_value(&Value::Float(0.95)).unwrap() - 0.95).abs() < 0.001);
     }
 }

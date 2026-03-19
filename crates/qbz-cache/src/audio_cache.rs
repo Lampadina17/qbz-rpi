@@ -146,7 +146,8 @@ impl AudioCache {
             let mut state = self.state.lock().unwrap();
 
             // Evict old entries to make room
-            while state.current_size + size > self.max_size_bytes && !state.access_order.is_empty() {
+            while state.current_size + size > self.max_size_bytes && !state.access_order.is_empty()
+            {
                 let oldest_id = state.access_order.remove(0);
                 if let Some(track) = state.tracks.remove(&oldest_id) {
                     state.current_size = state.current_size.saturating_sub(track.size_bytes);

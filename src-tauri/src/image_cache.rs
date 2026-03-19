@@ -101,8 +101,7 @@ impl ImageCacheService {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        std::fs::write(&path, bytes)
-            .map_err(|e| format!("Failed to write cached image: {}", e))?;
+        std::fs::write(&path, bytes).map_err(|e| format!("Failed to write cached image: {}", e))?;
 
         let file_size = bytes.len() as i64;
         self.conn

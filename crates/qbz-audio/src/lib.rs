@@ -26,41 +26,37 @@
 //!                      └───────────────┘
 //! ```
 
-pub mod backend;
-pub mod pipewire_backend;
 pub mod alsa_backend;
-pub mod pulse_backend;
 pub mod alsa_direct;
-pub mod diagnostic;
-pub mod loudness;
-pub mod dynamic_amplify;
+pub mod analysis;
 pub mod analyzer_tap;
-pub mod loudness_cache;
+pub mod backend;
+pub mod diagnostic;
+pub mod dynamic_amplify;
+pub mod loudness;
 pub mod loudness_analyzer;
+pub mod loudness_cache;
+pub mod pipewire_backend;
+pub mod pulse_backend;
 pub mod settings;
 pub mod visualizer;
-pub mod analysis;
 
 // Re-export commonly used types
-pub use backend::{
-    AlsaPlugin,
-    AudioBackend,
-    AudioBackendType,
-    AudioDevice,
-    BackendConfig,
-    BackendManager,
-    BackendResult,
-    AlsaDirectError,
-    BitPerfectMode,
+pub use alsa_backend::{
+    device_supports_sample_rate, get_device_supported_rates, normalize_device_id_to_stable,
+    resolve_stable_to_current_hw,
 };
 pub use alsa_direct::AlsaDirectStream;
-pub use alsa_backend::{normalize_device_id_to_stable, resolve_stable_to_current_hw, device_supports_sample_rate, get_device_supported_rates};
-pub use diagnostic::{AudioDiagnostic, DiagnosticSource, BitDepthResult};
-pub use loudness::{ReplayGainData, extract_replaygain, calculate_gain_factor, db_to_linear};
-pub use dynamic_amplify::DynamicAmplify;
-pub use analyzer_tap::{AnalyzerTap, AnalyzerMessage};
-pub use loudness_cache::LoudnessCache;
-pub use loudness_analyzer::LoudnessAnalyzer;
-pub use settings::AudioSettings;
-pub use visualizer::{VisualizerTap, TappedSource, RingBuffer};
 pub use analysis::SpectralAnalyzer;
+pub use analyzer_tap::{AnalyzerMessage, AnalyzerTap};
+pub use backend::{
+    AlsaDirectError, AlsaPlugin, AudioBackend, AudioBackendType, AudioDevice, BackendConfig,
+    BackendManager, BackendResult, BitPerfectMode,
+};
+pub use diagnostic::{AudioDiagnostic, BitDepthResult, DiagnosticSource};
+pub use dynamic_amplify::DynamicAmplify;
+pub use loudness::{calculate_gain_factor, db_to_linear, extract_replaygain, ReplayGainData};
+pub use loudness_analyzer::LoudnessAnalyzer;
+pub use loudness_cache::LoudnessCache;
+pub use settings::AudioSettings;
+pub use visualizer::{RingBuffer, TappedSource, VisualizerTap};

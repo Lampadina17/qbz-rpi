@@ -1119,11 +1119,17 @@ pub async fn library_scan_folder_impl(
             };
             let missing_ids: Vec<i64> = tracks
                 .iter()
-                .filter(|(_, path)| path.starts_with(&folder_prefix) && !std::path::Path::new(path).exists())
+                .filter(|(_, path)| {
+                    path.starts_with(&folder_prefix) && !std::path::Path::new(path).exists()
+                })
                 .map(|(id, _)| *id)
                 .collect();
             if !missing_ids.is_empty() {
-                log::info!("Removing {} tracks with missing files from folder {}", missing_ids.len(), folder.path);
+                log::info!(
+                    "Removing {} tracks with missing files from folder {}",
+                    missing_ids.len(),
+                    folder.path
+                );
                 for chunk in missing_ids.chunks(500) {
                     if let Err(e) = db.delete_tracks_by_ids(chunk) {
                         log::error!("Failed to delete missing tracks: {}", e);
@@ -2621,13 +2627,14 @@ pub async fn library_backfill_downloads(
         }
 
         // Track doesn't exist - extract track/disc number from file tags
-        let (track_num, disc_num) = match MetadataExtractor::extract(std::path::Path::new(&file_path)) {
-            Ok(meta) => (meta.track_number, meta.disc_number),
-            Err(e) => {
-                log::warn!("Could not extract metadata from {}: {}", file_path, e);
-                (None, None)
-            }
-        };
+        let (track_num, disc_num) =
+            match MetadataExtractor::extract(std::path::Path::new(&file_path)) {
+                Ok(meta) => (meta.track_number, meta.disc_number),
+                Err(e) => {
+                    log::warn!("Could not extract metadata from {}: {}", file_path, e);
+                    (None, None)
+                }
+            };
 
         // Insert as new
         match library_db.insert_qobuz_cached_track_direct(

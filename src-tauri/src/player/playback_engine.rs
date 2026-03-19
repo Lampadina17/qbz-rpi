@@ -85,7 +85,9 @@ impl PlaybackEngine {
                             "ALSA Direct gapless: next source channel full or closed".to_string()
                         });
                     }
-                    return Err("ALSA Direct: playback thread running but no gapless channel".to_string());
+                    return Err(
+                        "ALSA Direct: playback thread running but no gapless channel".to_string(),
+                    );
                 }
 
                 // First source — spawn the playback thread with a gapless channel
@@ -104,7 +106,9 @@ impl PlaybackEngine {
                 should_stop.store(false, Ordering::SeqCst);
                 position_clone.store(0, Ordering::SeqCst);
 
-                log::info!("[ALSA Direct Engine] Starting streaming playback thread (gapless-capable)");
+                log::info!(
+                    "[ALSA Direct Engine] Starting streaming playback thread (gapless-capable)"
+                );
 
                 let initial_source: BoxedSourceIter = Box::new(source.into_iter());
 

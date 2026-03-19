@@ -4,9 +4,9 @@
 //! without affecting audio playback. The tap is completely transparent to the
 //! audio pipeline.
 
+use rodio::Source;
 use std::sync::Arc;
 use std::time::Duration;
-use rodio::Source;
 
 use super::RingBuffer;
 

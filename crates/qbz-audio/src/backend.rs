@@ -217,10 +217,7 @@ pub trait AudioBackend: Send + Sync {
     fn enumerate_devices(&self) -> BackendResult<Vec<AudioDevice>>;
 
     /// Create an output stream for the given configuration
-    fn create_output_stream(
-        &self,
-        config: &BackendConfig,
-    ) -> BackendResult<MixerDeviceSink>;
+    fn create_output_stream(&self, config: &BackendConfig) -> BackendResult<MixerDeviceSink>;
 
     /// Check if this backend is available on the current system
     fn is_available(&self) -> bool;

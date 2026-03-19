@@ -73,7 +73,10 @@ pub fn read_album_sidecar(album_dir: &Path) -> Result<Option<AlbumTagSidecar>, L
     Ok(Some(sidecar))
 }
 
-pub fn write_album_sidecar(album_dir: &Path, sidecar: &AlbumTagSidecar) -> Result<(), LibraryError> {
+pub fn write_album_sidecar(
+    album_dir: &Path,
+    sidecar: &AlbumTagSidecar,
+) -> Result<(), LibraryError> {
     fs::create_dir_all(album_dir).map_err(LibraryError::Io)?;
 
     let target = sidecar_path(album_dir);
@@ -96,12 +99,22 @@ pub fn delete_album_sidecar(album_dir: &Path) -> Result<(), LibraryError> {
 }
 
 pub fn apply_sidecar_to_track(track: &mut LocalTrack, sidecar: &AlbumTagSidecar) {
-    if let Some(title) = sidecar.album.album_title.as_ref().and_then(|s| normalize(s)) {
+    if let Some(title) = sidecar
+        .album
+        .album_title
+        .as_ref()
+        .and_then(|s| normalize(s))
+    {
         track.album = title.clone();
         track.album_group_title = title.clone();
     }
 
-    if let Some(album_artist) = sidecar.album.album_artist.as_ref().and_then(|s| normalize(s)) {
+    if let Some(album_artist) = sidecar
+        .album
+        .album_artist
+        .as_ref()
+        .and_then(|s| normalize(s))
+    {
         track.album_artist = Some(album_artist.clone());
     }
 

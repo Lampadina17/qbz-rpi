@@ -390,7 +390,10 @@ impl MusicBrainzCache {
     // ============ Scene Discovery Cache ============
 
     /// Get cached scene discovery results
-    pub fn get_scene_cache(&self, cache_key: &str) -> Result<Option<LocationDiscoveryResponse>, String> {
+    pub fn get_scene_cache(
+        &self,
+        cache_key: &str,
+    ) -> Result<Option<LocationDiscoveryResponse>, String> {
         let min_fetched_at = Self::current_timestamp() - SCENE_TTL_SECS;
 
         let result: Option<String> = self
@@ -413,10 +416,14 @@ impl MusicBrainzCache {
     }
 
     /// Cache scene discovery results
-    pub fn set_scene_cache(&self, cache_key: &str, data: &LocationDiscoveryResponse) -> Result<(), String> {
+    pub fn set_scene_cache(
+        &self,
+        cache_key: &str,
+        data: &LocationDiscoveryResponse,
+    ) -> Result<(), String> {
         let fetched_at = Self::current_timestamp();
-        let json = serde_json::to_string(data)
-            .map_err(|e| format!("Failed to serialize scene: {}", e))?;
+        let json =
+            serde_json::to_string(data).map_err(|e| format!("Failed to serialize scene: {}", e))?;
 
         self.conn
             .execute(
