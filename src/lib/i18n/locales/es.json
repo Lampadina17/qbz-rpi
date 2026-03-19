@@ -410,6 +410,8 @@
     "makeOfflineConfirmDesc": "Esto almacenará {count} pistas para escuchar sin conexión. Puede usar espacio significativo en disco y tomar un tiempo en completarse.",
     "preparingPlaylistOffline": "Preparando {count} pistas de \"{name}\" para escuchar sin conexión...",
     "copyToLibrary": "Copiar a mi biblioteca",
+    "followOnQobuz": "Seguir en Qobuz",
+    "unfollowOnQobuz": "Dejar de seguir en Qobuz",
     "enterName": "Ingresa un nombre para la lista",
     "selectPlaylist": "Selecciona una lista",
     "duplicates": {

@@ -1622,6 +1622,54 @@ impl QobuzClient {
         Ok(response)
     }
 
+    /// Subscribe to a Qobuz playlist (follow it in the user's library)
+    pub async fn subscribe_playlist(&self, playlist_id: u64) -> Result<()> {
+        let url = endpoints::build_url(paths::PLAYLIST_SUBSCRIBE);
+
+        let response = self
+            .http
+            .get(&url)
+            .headers(self.authenticated_headers().await?)
+            .query(&[("playlist_id", playlist_id.to_string())])
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ApiError::ApiResponse(format!(
+                "playlist/subscribe failed ({}): {}",
+                status, body
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Unsubscribe from a Qobuz playlist
+    pub async fn unsubscribe_playlist(&self, playlist_id: u64) -> Result<()> {
+        let url = endpoints::build_url(paths::PLAYLIST_UNSUBSCRIBE);
+
+        let response = self
+            .http
+            .get(&url)
+            .headers(self.authenticated_headers().await?)
+            .query(&[("playlist_id", playlist_id.to_string())])
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ApiError::ApiResponse(format!(
+                "playlist/unsubscribe failed ({}): {}",
+                status, body
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Add item to favorites
     pub async fn add_favorite(&self, fav_type: &str, item_id: &str) -> Result<()> {
         let url = endpoints::build_url(paths::FAVORITE_CREATE);

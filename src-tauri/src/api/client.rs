@@ -2076,6 +2076,34 @@ impl QobuzClient {
         Ok(())
     }
 
+    /// Subscribe to a Qobuz playlist (follow it in the user's Qobuz library)
+    pub async fn subscribe_playlist(&self, playlist_id: u64) -> Result<()> {
+        let url = endpoints::build_url(paths::PLAYLIST_SUBSCRIBE);
+
+        self.http
+            .get(&url)
+            .headers(self.authenticated_headers().await?)
+            .query(&[("playlist_id", playlist_id.to_string())])
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    /// Unsubscribe from a Qobuz playlist
+    pub async fn unsubscribe_playlist(&self, playlist_id: u64) -> Result<()> {
+        let url = endpoints::build_url(paths::PLAYLIST_UNSUBSCRIBE);
+
+        self.http
+            .get(&url)
+            .headers(self.authenticated_headers().await?)
+            .query(&[("playlist_id", playlist_id.to_string())])
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
     /// Add tracks to a playlist
     pub async fn add_tracks_to_playlist(&self, playlist_id: u64, track_ids: &[u64]) -> Result<()> {
         let url = endpoints::build_url(paths::PLAYLIST_ADD_TRACKS);

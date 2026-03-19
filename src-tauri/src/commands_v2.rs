@@ -11296,6 +11296,36 @@ pub async fn v2_subscribe_playlist(
         .map_err(|e| format!("Failed to fetch created playlist: {}", e))
 }
 
+/// Subscribe to a Qobuz playlist (follow it in the user's Qobuz library).
+/// Unlike v2_subscribe_playlist which copies tracks locally, this calls the
+/// Qobuz API so the playlist appears in the user's account on all Qobuz clients.
+#[tauri::command]
+pub async fn v2_qobuz_subscribe_playlist(
+    playlist_id: u64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!("Command: v2_qobuz_subscribe_playlist {}", playlist_id);
+    let client = state.client.read().await;
+    client
+        .subscribe_playlist(playlist_id)
+        .await
+        .map_err(|e| format!("Failed to subscribe to playlist: {}", e))
+}
+
+/// Unsubscribe from a Qobuz playlist.
+#[tauri::command]
+pub async fn v2_qobuz_unsubscribe_playlist(
+    playlist_id: u64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!("Command: v2_qobuz_unsubscribe_playlist {}", playlist_id);
+    let client = state.client.read().await;
+    client
+        .unsubscribe_playlist(playlist_id)
+        .await
+        .map_err(|e| format!("Failed to unsubscribe from playlist: {}", e))
+}
+
 #[tauri::command]
 #[allow(non_snake_case)]
 pub async fn v2_share_track_songlink(

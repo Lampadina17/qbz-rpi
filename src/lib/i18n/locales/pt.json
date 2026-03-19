@@ -410,6 +410,8 @@
     "makeOfflineConfirmDesc": "Isso armazenará {count} faixas em cache para ouvir offline. Pode usar bastante espaço em disco e levar algum tempo para concluir.",
     "preparingPlaylistOffline": "Preparando {count} faixas de \"{name}\" para ouvir offline...",
     "copyToLibrary": "Copiar para biblioteca",
+    "followOnQobuz": "Seguir no Qobuz",
+    "unfollowOnQobuz": "Deixar de seguir no Qobuz",
     "enterName": "Por favor, insira um nome para a playlist",
     "selectPlaylist": "Por favor, selecione uma playlist",
     "duplicates": {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowLeft, Play, Shuffle, ListMusic, Search, X, ChevronDown, ChevronRight, ChevronUp, ImagePlus, Edit3, BarChart2, Heart, CloudDownload, ListPlus, GripVertical, CheckSquare } from 'lucide-svelte';
+  import { ArrowLeft, Play, Shuffle, ListMusic, Search, X, ChevronDown, ChevronRight, ChevronUp, ImagePlus, Edit3, BarChart2, Heart, CloudDownload, ListPlus, GripVertical, CheckSquare, Bookmark } from 'lucide-svelte';
   import AlbumMenu from '../AlbumMenu.svelte';
   import PlaylistCollage from '../PlaylistCollage.svelte';
   import PlaylistModal from '../PlaylistModal.svelte';
@@ -338,6 +338,12 @@
 
   // Show copy button only if: not own playlist AND not already copied
   let showCopyButton = $derived(!isOwnPlaylist && playlist !== null && !isCopied);
+
+  // Qobuz follow state (subscribe to playlist on Qobuz account)
+  let isFollowing = $state(false);
+  let isFollowBusy = $state(false);
+  // Show follow button only for non-owned playlists
+  let showFollowButton = $derived(!isOwnPlaylist && playlist !== null);
 
   async function scrollToTrack(trackId: number) {
     await tick();
@@ -905,6 +911,24 @@
       console.error('Failed to copy playlist:', err);
     } finally {
       isCopying = false;
+    }
+  }
+
+  async function toggleFollowOnQobuz() {
+    if (isFollowBusy || !playlist) return;
+    isFollowBusy = true;
+    try {
+      if (isFollowing) {
+        await invoke('v2_qobuz_unsubscribe_playlist', { playlistId: playlist.id });
+        isFollowing = false;
+      } else {
+        await invoke('v2_qobuz_subscribe_playlist', { playlistId: playlist.id });
+        isFollowing = true;
+      }
+    } catch (err) {
+      console.error('Failed to toggle Qobuz follow:', err);
+    } finally {
+      isFollowBusy = false;
     }
   }
 
@@ -2150,9 +2174,24 @@
               class:is-loading={isCopying}
               onclick={copyPlaylistToLibrary}
               disabled={isCopying}
-              title="Copy to My Library"
+              title={$t('playlist.copyToLibrary')}
             >
               <ListPlus size={18} />
+            </button>
+          {/if}
+          {#if showFollowButton}
+            <button
+              class="action-btn-circle"
+              class:is-loading={isFollowBusy}
+              onclick={toggleFollowOnQobuz}
+              disabled={isFollowBusy}
+              title={isFollowing ? $t('playlist.unfollowOnQobuz') : $t('playlist.followOnQobuz')}
+            >
+              <Bookmark
+                size={18}
+                color={isFollowing ? 'var(--accent-primary)' : 'currentColor'}
+                fill={isFollowing ? 'var(--accent-primary)' : 'none'}
+              />
             </button>
           {/if}
           <AlbumMenu

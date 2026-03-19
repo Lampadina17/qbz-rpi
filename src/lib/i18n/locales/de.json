@@ -388,6 +388,8 @@
     "newPlaylist": "Neue Playlist",
     "editPlaylist": "Playlist bearbeiten",
     "addToPlaylist": "Zur Playlist hinzufügen",
+    "followOnQobuz": "Auf Qobuz folgen",
+    "unfollowOnQobuz": "Auf Qobuz entfolgen",
     "enterName": "Bitte gib einen Playlist-Namen ein",
     "selectPlaylist": "Bitte wähle eine Playlist",
     "duplicates": {

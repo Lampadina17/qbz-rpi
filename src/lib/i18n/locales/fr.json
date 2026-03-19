@@ -388,6 +388,8 @@
     "newPlaylist": "Nouvelle playlist",
     "editPlaylist": "Modifier la playlist",
     "addToPlaylist": "Ajouter à la playlist",
+    "followOnQobuz": "Suivre sur Qobuz",
+    "unfollowOnQobuz": "Ne plus suivre sur Qobuz",
     "enterName": "Veuillez entrer un nom de playlist",
     "selectPlaylist": "Veuillez sélectionner une playlist",
     "duplicates": {

@@ -1448,6 +1448,8 @@ pub fn run() {
             commands_v2::v2_save_image_url_to_file,
             commands_v2::v2_show_track_notification,
             commands_v2::v2_subscribe_playlist,
+            commands_v2::v2_qobuz_subscribe_playlist,
+            commands_v2::v2_qobuz_unsubscribe_playlist,
             commands_v2::v2_cache_track_for_offline,
             commands_v2::v2_cache_tracks_batch_for_offline,
             commands_v2::v2_start_legacy_migration,
