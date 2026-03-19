@@ -4507,11 +4507,12 @@
         pushQobuzConnectDiagnostic('qconnect:event', 'info', event.payload);
         void refreshQobuzConnectRuntimeState();
 
-        const payload = event.payload as Record<string, unknown> | null;
-        if (payload) {
+        const payload = event.payload;
+        if (payload && typeof payload === 'object') {
+          const payloadObj = payload as Record<string, unknown>;
           // When QConnect connects while QBZ is already playing, push the current
           // queue to the server so controllers immediately see the right tracks.
-          if ('TransportConnected' in payload) {
+          if ('TransportConnected' in payloadObj) {
             console.log('[QConnect] TransportConnected detected, checking if local queue should be pushed');
             if (isPlaying && currentTrack) {
               // Delay briefly so the QConnect session setup (ask_for_queue_state etc.)

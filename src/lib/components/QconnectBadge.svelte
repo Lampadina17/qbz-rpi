@@ -34,7 +34,7 @@
     if (settingRenderer) return;
     settingRenderer = true;
     try {
-      await invoke('v2_qconnect_set_active_renderer', { rendererId });
+      await invoke('v2_qconnect_set_active_renderer', { request: { renderer_id: rendererId } });
     } catch (err) {
       console.warn('[QconnectBadge] set_active_renderer failed:', err);
     } finally {
