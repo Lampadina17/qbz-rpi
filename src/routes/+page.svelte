@@ -2198,8 +2198,8 @@
   }
 
   async function handleVolumeChange(newVolume: number) {
-    // ALSA Direct hw: locks volume at 100%
-    if (isAlsaDirectHw) return;
+    // ALSA Direct hw: locks volume at 100% — unless controlling a remote renderer
+    if (isAlsaDirectHw && !qconnectPeerRendererActive) return;
 
     try {
       const handledRemotely = await invoke<boolean>('v2_qconnect_set_volume_if_remote', { volume: newVolume });
@@ -2216,8 +2216,8 @@
   }
 
   async function handleToggleMute() {
-    // ALSA Direct hw: locks volume at 100%
-    if (isAlsaDirectHw) return;
+    // ALSA Direct hw: locks volume at 100% — unless controlling a remote renderer
+    if (isAlsaDirectHw && !qconnectPeerRendererActive) return;
 
     // Determine current mute state from volume
     const currentlyMuted = volume === 0;
@@ -5577,7 +5577,7 @@
         onToggleQconnectConnection={handleQobuzConnectButton}
         qconnectBusy={qobuzConnectBusy}
         {showQconnectDevButton}
-        volumeLocked={isAlsaDirectHw}
+        volumeLocked={isAlsaDirectHw && !qconnectPeerRendererActive}
       />
     {:else}
       <NowPlayingBar
@@ -5599,7 +5599,7 @@
         onToggleQconnectConnection={handleQobuzConnectButton}
         qconnectBusy={qobuzConnectBusy}
         {showQconnectDevButton}
-        volumeLocked={isAlsaDirectHw}
+        volumeLocked={isAlsaDirectHw && !qconnectPeerRendererActive}
       />
     {/if}
 
