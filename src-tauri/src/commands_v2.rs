@@ -7971,9 +7971,11 @@ pub async fn v2_play_track(
                     track_id,
                     e
                 );
-                // Get a fresh URL and use the standard download path below
+                // Get a fresh URL using the quality we actually received
+                let effective_quality = Quality::from_id(stream_url.format_id)
+                    .unwrap_or(final_quality);
                 let retry_url = bridge_guard
-                    .get_stream_url(track_id, final_quality)
+                    .get_stream_url(track_id, effective_quality)
                     .await
                     .map_err(RuntimeError::Internal)?;
                 stream_url = retry_url;
@@ -7981,7 +7983,7 @@ pub async fn v2_play_track(
                     Ok(data) => data,
                     Err(e2) => {
                         // Fresh URL at same quality also failed — try lower quality
-                        if let Some(fallback_q) = final_quality.lower() {
+                        if let Some(fallback_q) = effective_quality.lower() {
                             log::warn!(
                                 "[V2/DOWNLOAD] Streaming fallback also failed for track {}: {}. Trying quality fallback to {}",
                                 track_id, e2, fallback_q.label()
@@ -8137,21 +8139,26 @@ pub async fn v2_play_track(
                 track_id,
                 e
             );
-            // Retry with fresh URL — CDN edge may have returned premature EOF
+            // Retry with fresh URL — CDN edge may have returned premature EOF.
+            // Use the quality we actually received (which may differ from requested
+            // due to get_stream_url_with_fallback, e.g. UltraHiRes → HiRes).
+            let effective_quality = Quality::from_id(stream_url.format_id)
+                .unwrap_or(final_quality);
             log::info!(
-                "[V2/DOWNLOAD] Retrying track {} with fresh URL...",
-                track_id
+                "[V2/DOWNLOAD] Retrying track {} with fresh URL (effective quality: {})...",
+                track_id,
+                effective_quality.label()
             );
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let retry_url = bridge_guard
-                .get_stream_url(track_id, final_quality)
+                .get_stream_url(track_id, effective_quality)
                 .await
                 .map_err(RuntimeError::Internal)?;
             match download_audio(&retry_url.url).await {
                 Ok(data) => data,
                 Err(e2) => {
                     // Both attempts at current quality failed — try lower quality
-                    if let Some(fallback_q) = final_quality.lower() {
+                    if let Some(fallback_q) = effective_quality.lower() {
                         log::warn!(
                             "[V2/DOWNLOAD] Retry also failed for track {}: {}. Trying quality fallback to {}",
                             track_id, e2, fallback_q.label()
