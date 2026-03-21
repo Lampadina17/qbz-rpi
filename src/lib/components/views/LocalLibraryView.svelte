@@ -919,6 +919,7 @@
   let updatingArtwork = $state(false);
   let hasDiscogsCredentials = $state(false);
   let isOffline = $state(checkIsOffline());
+  let offlineNoticeDismissed = $state(false);
 
   // Album detail state (for viewing album tracks)
   let selectedAlbum = $state<LocalAlbum | null>(null);
@@ -3344,10 +3345,13 @@
     </div>
 
     <!-- Offline Notice Banner -->
-    {#if isOffline}
+    {#if isOffline && !offlineNoticeDismissed}
       <div class="offline-notice">
         <AlertCircle size={16} />
         <span>{$t('library.playlistOfflineMode')}</span>
+        <button class="dismiss-btn" onclick={() => offlineNoticeDismissed = true} title="Dismiss">
+          <X size={14} />
+        </button>
       </div>
     {/if}
 
@@ -4443,6 +4447,22 @@
 
   .offline-notice span {
     color: var(--text-primary);
+    flex: 1;
+  }
+
+  .offline-notice .dismiss-btn {
+    background: none;
+    border: none;
+    color: #fbbf24;
+    cursor: pointer;
+    padding: 2px;
+    opacity: 0.6;
+    transition: opacity 150ms ease;
+    flex-shrink: 0;
+  }
+
+  .offline-notice .dismiss-btn:hover {
+    opacity: 1;
   }
 
   /* Scan Progress */
