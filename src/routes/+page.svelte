@@ -3404,16 +3404,27 @@
 
   // Auth Handlers
   async function handleStartOffline() {
-    // Enable manual offline mode and enter app without authentication
-    await setManualOffline(true);
-
-    // Activate offline session in backend (initializes minimal stores, sets session_activated=true)
-    // This allows queue commands to work even without remote auth
+    // Activate offline session FIRST — this initializes per-user stores
+    // (library, offline cache, audio settings) using the last known user profile.
+    // Must happen before setManualOffline which requires an active store.
     try {
       await invoke('v2_activate_offline_session');
     } catch (err) {
       console.error('[Offline] Failed to activate offline session:', err);
-      // Continue anyway - offline mode should be best-effort
+      // If no previous session exists, show friendly message
+      const errStr = String(err);
+      if (errStr.includes('No active session') || errStr.includes('no previous session')) {
+        showToast($t('offline.noPreviousSession'), 'error');
+        return;
+      }
+      // Continue for other errors - offline mode should be best-effort
+    }
+
+    // Now that stores are initialized, enable manual offline mode
+    try {
+      await setManualOffline(true);
+    } catch (err) {
+      console.warn('[Offline] setManualOffline failed (non-fatal):', err);
     }
 
     setLoggedIn({

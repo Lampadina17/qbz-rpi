@@ -1430,6 +1430,7 @@
     "trackNotAvailable": "Dieser Titel ist offline nicht verfügbar",
     "featureDisabled": "Diese Funktion erfordert eine Internetverbindung",
     "startWithoutLogin": "Offline starten (kein Zugriff auf Qobuz™-Dienste)",
+    "noPreviousSession": "Sie müssen sich mindestens einmal anmelden, bevor Sie den Offline-Modus verwenden können. Stellen Sie eine Internetverbindung her und melden Sie sich an.",
     "noNetworkToast": "Keine Internetverbindung verfügbar",
     "checkingNetwork": "Netzwerkverbindung wird überprüft...",
     "available": "Vollständig offline verfügbar",

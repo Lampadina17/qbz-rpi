@@ -280,7 +280,10 @@
 
   async function handleStartOffline() {
     try {
-      await setManualOffline(true);
+      // Delegate to parent — it handles the correct order:
+      // 1. activate_offline_session (init stores)
+      // 2. setManualOffline (requires stores)
+      // 3. setLoggedIn + navigate
       onStartOffline?.();
     } catch (err) {
       console.error('Failed to enable offline mode:', err);

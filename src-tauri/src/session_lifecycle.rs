@@ -337,19 +337,22 @@ pub async fn deactivate_session(app: &tauri::AppHandle) -> Result<(), String> {
 /// Activate an offline-only session (no remote auth required).
 ///
 /// This creates a minimal session for offline/local library use.
-/// Uses user_id = 0 as a special "offline user" marker.
+/// Activates an offline session using the last known user profile.
+/// If no previous session exists, falls back to user_id = 0 (empty profile).
 pub async fn activate_offline_session(app: &tauri::AppHandle) -> Result<(), String> {
-    log::info!("[SessionLifecycle] Activating offline session");
-
-    // For offline mode, we use a special user_id of 0
-    // This is distinct from authenticated users
-    const OFFLINE_USER_ID: u64 = 0;
+    // Use last known user_id so offline mode has access to existing library,
+    // settings, and cached data. Fall back to 0 if never logged in.
+    let offline_user_id = UserDataPaths::load_last_user_id().unwrap_or(0);
+    log::info!(
+        "[SessionLifecycle] Activating offline session (user_id={}{})",
+        offline_user_id,
+        if offline_user_id == 0 { " — no previous session" } else { "" }
+    );
 
     let user_paths = app.state::<UserDataPaths>();
     let runtime_manager = app.state::<RuntimeManagerState>();
 
-    // Set user to offline user for path resolution
-    user_paths.set_user(OFFLINE_USER_ID);
+    user_paths.set_user(offline_user_id);
 
     // Resolve directories (same as normal user but at user_id=0)
     let data_dir = user_paths.user_data_dir()?;
@@ -400,14 +403,14 @@ pub async fn activate_offline_session(app: &tauri::AppHandle) -> Result<(), Stri
     // But session_activated is true so queue commands work
     runtime_manager
         .manager()
-        .set_session_activated(true, OFFLINE_USER_ID)
+        .set_session_activated(true, offline_user_id)
         .await;
 
     // Emit event
     let _ = app.emit(
         "runtime:event",
         RuntimeEvent::UserSessionActivated {
-            user_id: OFFLINE_USER_ID,
+            user_id: offline_user_id,
         },
     );
 

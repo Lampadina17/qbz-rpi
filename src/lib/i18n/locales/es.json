@@ -1527,6 +1527,7 @@
     "trackNotAvailable": "Esta pista no esta disponible offline",
     "featureDisabled": "Esta funcion requiere conexion a internet",
     "startWithoutLogin": "Iniciar en modo offline (sin acceso a los servicios de Qobuz™)",
+    "noPreviousSession": "Necesitas iniciar sesión al menos una vez antes de usar el modo offline. Conéctate a internet e inicia sesión para crear tu perfil.",
     "noNetworkToast": "No hay conexion a internet disponible",
     "checkingNetwork": "Verificando conexion a internet...",
     "available": "Totalmente Disponible Offline",
