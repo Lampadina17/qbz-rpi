@@ -364,19 +364,41 @@ pub async fn activate_offline_session(app: &tauri::AppHandle) -> Result<(), Stri
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| format!("Failed to create offline cache dir: {}", e))?;
 
-    // Initialize only the stores needed for offline operation
+    // Initialize all per-user stores needed for offline operation.
+    // This mirrors activate_session but skips online-only services
+    // (MusicBrainz, ListenBrainz, Last.fm, API cache, artist vectors).
     let library = app.state::<crate::library::commands::LibraryState>();
     let offline = app.state::<crate::offline::OfflineState>();
     let offline_cache = app.state::<crate::offline_cache::OfflineCacheState>();
     let audio_settings = app.state::<crate::config::audio_settings::AudioSettingsState>();
     let playback_prefs =
         app.state::<crate::config::playback_preferences::PlaybackPreferencesState>();
+    let session_store = app.state::<crate::session_store::SessionStoreState>();
+    let download_settings = app.state::<crate::config::download_settings::DownloadSettingsState>();
+    let favorites_cache = app.state::<crate::config::favorites_cache::FavoritesCacheState>();
+    let tray_settings = app.state::<crate::config::tray_settings::TraySettingsState>();
+    let favorites_prefs =
+        app.state::<crate::config::favorites_preferences::FavoritesPreferencesState>();
 
     library.init_at(&data_dir).await?;
     offline.init_at(&data_dir)?;
     offline_cache.init_at(&cache_dir).await?;
     offline_cache.init_library_connection(&data_dir).await?;
     audio_settings.init_at(&data_dir)?;
+    session_store.init_at(&data_dir)?;
+    favorites_cache.init_at(&data_dir)?;
+    favorites_prefs.init_at(&data_dir)?;
+    tray_settings.init_at(&data_dir)?;
+
+    // Download settings — needed for "Show in Local Library" toggle
+    {
+        use crate::config::download_settings::DownloadSettingsStore;
+        crate::commands::user_session::init_type_alias_state(
+            &*download_settings,
+            &data_dir,
+            DownloadSettingsStore::new_at,
+        )?;
+    }
 
     // Sync audio settings to CoreBridge player (same as normal session)
     {
