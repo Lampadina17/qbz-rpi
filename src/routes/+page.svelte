@@ -530,7 +530,7 @@
       }
     };
     mainContentEl.addEventListener('scroll', handler, true);
-    return () => mainContentEl!.removeEventListener('scroll', handler, true);
+    return () => mainContentEl?.removeEventListener('scroll', handler, true);
   });
 
   // Reset scroll state on view or item change (but not on back/forward — that restores saved position)

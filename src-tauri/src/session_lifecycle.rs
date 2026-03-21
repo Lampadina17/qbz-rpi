@@ -315,9 +315,10 @@ pub async fn deactivate_session(app: &tauri::AppHandle) -> Result<(), String> {
     crate::commands::user_session::teardown_type_alias_state(&*subscription_state);
     crate::commands::user_session::teardown_type_alias_state(&*download_settings);
 
-    // Clear the active user and persisted last_user_id
+    // Clear the active user but KEEP last_user_id on disk.
+    // Offline mode needs it to load the user's library and settings
+    // even after logout.
     user_paths.clear_user();
-    UserDataPaths::clear_last_user_id();
 
     // Update runtime state - clear BOTH auth and session
     runtime_manager.manager().set_legacy_auth(false, None).await;
