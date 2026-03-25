@@ -54,6 +54,7 @@
   let loading = $state(false);
   let copied = $state(false);
   let error = $state<string | null>(null);
+  let panelOpen = $state(false);
 
   let audioOpen = $state(true);
   let graphicsOpen = $state(true);
@@ -158,32 +159,37 @@
     }
   }
 
-  onMount(() => {
-    loadDiagnostics();
-  });
+  function togglePanel() {
+    panelOpen = !panelOpen;
+    if (panelOpen && !diagnostics) {
+      loadDiagnostics();
+    }
+  }
 </script>
 
 <div class="diagnostics-panel">
-  <div class="diag-header">
-    <div>
-      <h4 class="subsection-title">{$t('settings.developer.diagnostics.title')}</h4>
-      <small class="setting-note">{$t('settings.developer.diagnostics.description')}</small>
-    </div>
-    <div class="diag-actions">
-      <button class="diag-btn" onclick={loadDiagnostics} disabled={loading}>
-        <RefreshCw size={14} class={loading ? 'spinning' : ''} />
-        {$t('settings.developer.diagnostics.refresh')}
-      </button>
-      <button class="diag-btn" onclick={exportToClipboard} disabled={!diagnostics}>
-        {#if copied}
-          <Check size={14} />
-          {$t('settings.developer.diagnostics.exported')}
-        {:else}
-          <Copy size={14} />
-          {$t('settings.developer.diagnostics.export')}
-        {/if}
-      </button>
-    </div>
+  <button class="section-toggle panel-toggle" onclick={togglePanel}>
+    {#if panelOpen}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+    <h4 class="subsection-title" style="margin:0">{$t('settings.developer.diagnostics.title')}</h4>
+    <small class="setting-note" style="margin:0">{$t('settings.developer.diagnostics.description')}</small>
+  </button>
+
+  {#if panelOpen}
+  <div class="diag-body">
+  <div class="diag-actions">
+    <button class="diag-btn" onclick={loadDiagnostics} disabled={loading}>
+      <RefreshCw size={14} class={loading ? 'spinning' : ''} />
+      {$t('settings.developer.diagnostics.refresh')}
+    </button>
+    <button class="diag-btn" onclick={exportToClipboard} disabled={!diagnostics}>
+      {#if copied}
+        <Check size={14} />
+        {$t('settings.developer.diagnostics.exported')}
+      {:else}
+        <Copy size={14} />
+        {$t('settings.developer.diagnostics.export')}
+      {/if}
+    </button>
   </div>
 
   {#if error}
@@ -274,6 +280,8 @@
         </tbody>
       </table>
     {/if}
+  {/if}
+  </div>
   {/if}
 </div>
 
