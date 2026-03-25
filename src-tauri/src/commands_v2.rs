@@ -13204,6 +13204,47 @@ pub async fn v2_fetch_url_bytes(url: String) -> Result<Vec<u8>, String> {
 
 // ============ Image Cache Commands ============
 
+/// Download an image via reqwest (rustls) and write to a temp file.
+/// Returns a file:// URL that WebKit can load without needing system TLS.
+/// Used as fallback when the image cache service is unavailable.
+async fn download_image_to_temp(url: &str) -> Result<String, String> {
+    let url_owned = url.to_string();
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let response = reqwest::blocking::Client::new()
+            .get(&url_owned)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .map_err(|e| format!("Failed to download image: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP {}", response.status()));
+        }
+
+        response
+            .bytes()
+            .map(|b| b.to_vec())
+            .map_err(|e| format!("Failed to read image bytes: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))??;
+
+    // Write to temp dir with a hash-based filename to avoid duplicates
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        url.hash(&mut hasher);
+        hasher.finish()
+    };
+    let tmp_dir = std::env::temp_dir().join("qbz-img-proxy");
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    let tmp_path = tmp_dir.join(format!("{:x}.img", hash));
+    std::fs::write(&tmp_path, &bytes)
+        .map_err(|e| format!("Failed to write temp image: {}", e))?;
+
+    Ok(format!("file://{}", tmp_path.display()))
+}
+
 #[tauri::command]
 pub async fn v2_get_cached_image(
     url: String,
@@ -13223,8 +13264,9 @@ pub async fn v2_get_cached_image(
     };
 
     if !settings.enabled {
-        // Cache disabled — return original URL
-        return Ok(url);
+        // Cache disabled — still proxy through reqwest so WebKit never
+        // needs to resolve HTTPS (fixes AppImage TLS on some distros)
+        return download_image_to_temp(&url).await;
     }
 
     // Check cache first
@@ -13240,7 +13282,7 @@ pub async fn v2_get_cached_image(
         }
     }
 
-    // Download the image (in blocking context since reqwest::blocking)
+    // Download the image via reqwest (uses rustls — own CA bundle)
     let url_clone = url.clone();
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
         let response = reqwest::blocking::Client::new()
@@ -13262,19 +13304,25 @@ pub async fn v2_get_cached_image(
     .map_err(|e| format!("Task join error: {}", e))??;
 
     // Store in cache and evict if needed
-    let max_bytes = (settings.max_size_mb as u64) * 1024 * 1024;
-    let lock = cache_state
-        .service
-        .lock()
-        .map_err(|e| format!("Cache lock error: {}", e))?;
-    if let Some(service) = lock.as_ref() {
-        let path = service.store(&url, &bytes)?;
-        // Evict LRU entries if over limit
-        let _ = service.evict(max_bytes);
-        Ok(format!("file://{}", path.display()))
-    } else {
-        // Service not initialized, return original URL
-        Ok(url)
+    let store_result = {
+        let max_bytes = (settings.max_size_mb as u64) * 1024 * 1024;
+        let lock = cache_state
+            .service
+            .lock()
+            .map_err(|e| format!("Cache lock error: {}", e))?;
+        if let Some(service) = lock.as_ref() {
+            let path = service.store(&url, &bytes)?;
+            let _ = service.evict(max_bytes);
+            Some(format!("file://{}", path.display()))
+        } else {
+            None
+        }
+    }; // lock dropped here, before any .await
+
+    match store_result {
+        Some(path) => Ok(path),
+        // Service not initialized — use temp file fallback
+        None => download_image_to_temp(&url).await,
     }
 }
 

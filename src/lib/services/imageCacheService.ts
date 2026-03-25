@@ -49,7 +49,9 @@ export async function getCachedImageUrl(url: string): Promise<string> {
       resolvedUrls.set(url, resolved);
       return resolved;
     } catch {
-      // On failure, use original URL
+      // Backend failed to proxy — use original URL as last resort.
+      // This may fail on AppImage distros with broken GnuTLS but
+      // is better than showing nothing on distros where WebKit works.
       resolvedUrls.set(url, url);
       return url;
     } finally {
