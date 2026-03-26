@@ -85,6 +85,71 @@ jobs:
           echo "=== qbz-${VERSION}.ebuild ==="
           cat "qbz-${VERSION}.ebuild"
 
+      - name: Generate Manifests
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Helper: compute BLAKE2B and SHA512 for a file, output Manifest line
+          manifest_line() {
+            local type="$1" name="$2" file="$3"
+            local size blake2b sha512
+            size=$(stat -c%s "$file")
+            blake2b=$(b2sum "$file" | awk '{print $1}')
+            sha512=$(sha512sum "$file" | awk '{print $1}')
+            echo "${type} ${name} ${size} BLAKE2B ${blake2b} SHA512 ${sha512}"
+          }
+
+          # --- qbz-bin Manifest ---
+          cd /tmp/qbz-overlay/media-sound/qbz-bin
+          MANIFEST=""
+
+          # Download DIST files and hash them
+          for arch_pair in "amd64:amd64" "aarch64:arm64"; do
+            arch="${arch_pair%%:*}"
+            dist_name="qbz_${VERSION}_${arch}.tar.gz"
+            url="https://github.com/vicrodh/qbz/releases/download/v${VERSION}/${dist_name}"
+            echo "Downloading ${dist_name}..."
+            if curl -sLf "$url" -o "/tmp/${dist_name}"; then
+              MANIFEST+="$(manifest_line DIST "$dist_name" "/tmp/${dist_name}")"$'\n'
+            else
+              echo "WARNING: ${dist_name} not found at ${url}, skipping"
+            fi
+          done
+
+          # Hash the ebuild itself
+          MANIFEST+="$(manifest_line EBUILD "qbz-bin-${VERSION}.ebuild" "qbz-bin-${VERSION}.ebuild")"$'\n'
+
+          # Hash metadata.xml
+          MANIFEST+="$(manifest_line MISC "metadata.xml" "metadata.xml")"$'\n'
+
+          echo "$MANIFEST" > Manifest
+          echo "=== qbz-bin Manifest ==="
+          cat Manifest
+
+          # --- qbz (source) Manifest ---
+          cd /tmp/qbz-overlay/media-sound/qbz
+          MANIFEST=""
+
+          # Download source tarball
+          dist_name="qbz-${VERSION}.tar.gz"
+          url="https://github.com/vicrodh/qbz/archive/refs/tags/v${VERSION}.tar.gz"
+          echo "Downloading source tarball..."
+          if curl -sLf "$url" -o "/tmp/${dist_name}"; then
+            MANIFEST+="$(manifest_line DIST "$dist_name" "/tmp/${dist_name}")"$'\n'
+          else
+            echo "WARNING: source tarball not found, skipping"
+          fi
+
+          # Hash the ebuild
+          MANIFEST+="$(manifest_line EBUILD "qbz-${VERSION}.ebuild" "qbz-${VERSION}.ebuild")"$'\n'
+
+          # Hash metadata.xml
+          MANIFEST+="$(manifest_line MISC "metadata.xml" "metadata.xml")"$'\n'
+
+          echo "$MANIFEST" > Manifest
+          echo "=== qbz Manifest ==="
+          cat Manifest
+
       - name: Commit and push
         env:
           VERSION: ${{ steps.version.outputs.version }}
