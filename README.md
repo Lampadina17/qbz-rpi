@@ -93,7 +93,7 @@ Download from [Releases](https://github.com/vicrodh/qbz/releases): `chmod +x QBZ
 
 ### macOS (Experimental)
 
-> **QBZ is a Linux-first application.** macOS support is experimental and limited. Features like PipeWire, ALSA Direct, casting, and device control are unavailable. Thanks to [@afonsojramos](https://github.com/afonsojramos) for maintaining the macOS port.
+> **QBZ is a Linux-first application.** macOS support is experimental and limited. Features like PipeWire, ALSA Direct, casting, and device control are unavailable.
 
 Download the unsigned DMG from [Releases](https://github.com/vicrodh/qbz/releases) (Apple Silicon only).
 
@@ -297,6 +297,14 @@ QBZ is MIT-licensed. No telemetry, no tracking, no hidden services. Built for Li
 ## Contributing
 
 Contributions welcome. Please read `CONTRIBUTING.md` before submitting issues or pull requests.
+
+### Contributors
+
+- [@vorce](https://github.com/vorce)
+- [@boxdot](https://github.com/boxdot)
+- [@arminfelder](https://github.com/arminfelder)
+- [@afonsojramos](https://github.com/afonsojramos) — macOS port
+- [@GwendalBeaumont](https://github.com/GwendalBeaumont) — i18n
 
 ## License
 
